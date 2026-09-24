@@ -1,0 +1,81 @@
+---
+import "@/styles/global.css";
+import PixelCoin from "@/components/PixelCoin.astro";
+import ThemeIcon from "@/components/ThemeIcon.astro";
+import { CELESTIAL, MARKET_HEIGHT, MARKET_WIDTH } from "@/art/market";
+
+type Props = { title: string; description?: string; hero?: boolean };
+const { title, description = "A curated market of security-scanned agent skills, sorted by guild.", hero = false } = Astro.props;
+
+// The clickable sun/moon in the hero, as a percentage box over the painted scene.
+const pad = 4;
+const celestial = {
+  left: `${((CELESTIAL.x - CELESTIAL.r - pad) / MARKET_WIDTH) * 100}%`,
+  top: `${((CELESTIAL.y - CELESTIAL.r - pad) / MARKET_HEIGHT) * 100}%`,
+  width: `${((2 * CELESTIAL.r + 2 * pad) / MARKET_WIDTH) * 100}%`,
+  height: `${((2 * CELESTIAL.r + 2 * pad) / MARKET_HEIGHT) * 100}%`,
+};
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title === "marktplatz" ? title : `${title} · marktplatz`}</title>
+    <script is:inline>
+      // Day or night: a saved choice wins, otherwise follow the system. Any [data-theme-toggle] switches it.
+      (() => {
+        const root = document.documentElement;
+        let saved = null;
+        try {
+          saved = localStorage.getItem("theme");
+        } catch {}
+        root.classList.toggle("dark", saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches);
+        document.addEventListener("click", (event) => {
+          if (!event.target.closest("[data-theme-toggle]")) return;
+          const dark = root.classList.toggle("dark");
+          try {
+            localStorage.setItem("theme", dark ? "dark" : "light");
+          } catch {}
+        });
+      })();
+    </script>
+  </head>
+  <body class="min-h-screen text-foreground">
+    <header>
+      <nav class="wood text-[#fbf1dc]" style="box-shadow: 0 3px 0 #2a1a10">
+        <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 text-lg [text-shadow:2px_2px_#2a1a10]">
+          <a href="/" class="flex items-center gap-2 font-heading text-2xl font-bold tracking-wide">
+            <PixelCoin size={28} />
+            marktplatz
+          </a>
+          <a href="/" class="hover:text-[#ffe066]">Market</a>
+          <a href="/licenses" class="hover:text-[#ffe066]">Charters</a>
+          <a href="https://github.com/icepuma/marktplatz-dev" class="ml-auto hover:text-[#ffe066]">GitHub</a>
+          <button type="button" data-theme-toggle aria-label="Switch between day and night" title="Switch between day and night" class="flex">
+            <ThemeIcon />
+          </button>
+        </div>
+      </nav>
+      {
+        hero ? (
+          <div class="relative mx-auto max-w-[1280px]">
+            <img src="/art/market-day.png" alt="A market square by day: striped stalls, a wizard merchant, a castle and a wizard's tower under a smiling sun." width="640" height="320" class="hero dark:hidden" />
+            <img src="/art/market-night.png" alt="The same market square by night, under the moon, lit by lanterns." width="640" height="320" class="hero hidden dark:block" />
+            <button type="button" data-theme-toggle aria-label="Switch between day and night" title="Switch between day and night" class="celestial" style={celestial} />
+          </div>
+        ) : (
+          <div aria-hidden="true" class="hero h-36 bg-[url(/art/market-day.png)] bg-[length:1280px_640px] bg-[position:center_46%] bg-repeat-x dark:bg-[url(/art/market-night.png)]" />
+        )
+      }
+    </header>
+    <main class="mx-auto max-w-6xl px-4 py-8">
+      <slot />
+    </main>
+    <footer class="mx-auto max-w-6xl px-4 pb-8 text-center text-muted-foreground">
+      Est. MMXXVI · every ware inspected by the watch · <a href="/licenses" class="underline">charters</a>
+    </footer>
+  </body>
+</html>

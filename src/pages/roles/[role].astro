@@ -1,0 +1,48 @@
+---
+import { Badge } from "@/components/ui/badge";
+import Layout from "@/layouts/Layout.astro";
+import { loadCatalog } from "@/lib/catalog";
+import type { CatalogRole, CatalogSkill } from "@/lib/types";
+
+export async function getStaticPaths() {
+  const catalog = await loadCatalog();
+  return catalog.roles.map((role) => ({
+    params: { role: role.id },
+    props: { role, skills: catalog.skills.filter((s) => role.skills.includes(s.id)) },
+  }));
+}
+
+type Props = { role: CatalogRole; skills: CatalogSkill[] };
+const { role, skills } = Astro.props;
+---
+
+<Layout title={role.name} description={role.description}>
+  <div class="max-w-3xl space-y-6">
+    <div class="flex items-center gap-6">
+      <img src={`/art/guilds/${role.id}.png`} alt="" width="96" height="112" class="pixel" />
+      <div class="space-y-2">
+      <p class="font-heading text-muted-foreground">The guild of</p>
+      <h1 class="adventure-heading text-4xl!">{role.name}</h1>
+      <p class="text-xl text-muted-foreground">{role.description}</p>
+      <a href={`/market/claude-code/roles/${role.id}`} class="inline-block font-heading underline">Add this guild to thy basket →</a>
+      </div>
+    </div>
+    <ul class="pixel-box divide-y-2 divide-dashed divide-border/40 bg-card">
+      {
+        skills.map((skill) => (
+          <li class="flex items-start gap-4 p-4">
+            <img src={`/art/wares/${skill.id}.png`} alt="" width="64" height="64" class="pixel" />
+            <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <a href={`/skills/${skill.id}`} class="font-heading text-lg hover:underline">{skill.id}</a>
+              <Badge variant="outline">{skill.version}</Badge>
+              <Badge variant="outline">{skill.license}</Badge>
+            </div>
+            <p class="mt-1 text-muted-foreground">{skill.description}</p>
+            </div>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</Layout>

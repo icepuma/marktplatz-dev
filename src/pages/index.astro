@@ -1,0 +1,21 @@
+---
+import Builder from "@/components/Builder";
+import Layout from "@/layouts/Layout.astro";
+import { loadCatalog } from "@/lib/catalog";
+import { buildSha, REPO_URL } from "@/lib/site";
+
+const catalog = await loadCatalog();
+const ctx = { repoUrl: REPO_URL, sha: buildSha() };
+---
+
+<Layout title="marktplatz" hero>
+  <div class="mb-10 max-w-3xl space-y-3">
+    <h1 class="adventure-heading text-3xl! sm:text-4xl!">Hear ye! The skill market is open.</h1>
+    <p class="text-xl text-muted-foreground">
+      Browse the guilds, fill thy basket with wares, and carry home a marketplace scroll for Claude Code or OpenAI
+      Codex. Every ware bears a proper charter (license) and passed three watchmen at the gate: SkillSpector, Cisco
+      skill-scanner and ATR.
+    </p>
+  </div>
+  <Builder client:load catalog={catalog} ctx={ctx} />
+</Layout>

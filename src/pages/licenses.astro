@@ -1,0 +1,35 @@
+---
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import Layout from "@/layouts/Layout.astro";
+import { approvedDir, loadApprovedVersions } from "@/lib/catalog";
+
+// Collected from every approved skill version; each one carries its own LICENSE file.
+const skills = await Promise.all(
+  [...(await loadApprovedVersions()).values()].flat().map(async (skill) => ({
+    skill,
+    text: await readFile(join(approvedDir(skill.id, skill.version), "LICENSE"), "utf8"),
+  })),
+);
+---
+
+<Layout title="Charters">
+  <div class="max-w-3xl space-y-6">
+    <h1 class="adventure-heading text-4xl!">Charters</h1>
+    <p class="text-xl text-muted-foreground">
+      Every ware is sold unaltered under the charter (license) of its crafter. The marktplatz code itself is
+      MIT-licensed.
+    </p>
+    {
+      skills.map(({ skill, text }) => (
+        <details class="pixel-box bg-card p-4">
+          <summary class="cursor-pointer">
+            <span class="font-heading">{skill.id}</span> {skill.version} · {skill.license} ·{" "}
+            <a href={`https://github.com/${skill.repo}`} class="underline">{skill.repo}</a>
+          </summary>
+          <pre class="mt-3 overflow-x-auto bg-muted p-3 whitespace-pre-wrap">{text}</pre>
+        </details>
+      ))
+    }
+  </div>
+</Layout>

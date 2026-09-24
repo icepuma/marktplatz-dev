@@ -1,0 +1,75 @@
+---
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { Badge } from "@/components/ui/badge";
+import Layout from "@/layouts/Layout.astro";
+import { approvedDir, loadApprovedVersions, loadRoles } from "@/lib/catalog";
+import type { CatalogSkill } from "@/lib/types";
+
+export async function getStaticPaths() {
+  const versions = await loadApprovedVersions();
+  return [...versions].map(([id, all]) => ({ params: { id }, props: { skill: all[0]!, versions: all } }));
+}
+
+type Props = { skill: CatalogSkill; versions: CatalogSkill[] };
+const { skill, versions } = Astro.props;
+const skillMd = await readFile(join(approvedDir(skill.id, skill.version), "skills", skill.id, "SKILL.md"), "utf8");
+const roles = [...(await loadRoles())].filter(([, r]) => r.skills.includes(skill.id));
+const upstream = `https://github.com/${skill.repo}/tree/${skill.sha}/${skill.path}`;
+---
+
+<Layout title={skill.id} description={skill.description}>
+  <div class="grid gap-8 lg:grid-cols-[1fr_18rem]">
+    <div class="min-w-0 space-y-4">
+      <div class="flex items-center gap-4">
+        <span class="slot"><img src={`/art/wares/${skill.id}.png`} alt="" width="64" height="64" class="pixel" /></span>
+        <h1 class="adventure-heading text-4xl!">{skill.id}</h1>
+      </div>
+      <p class="text-xl text-muted-foreground">{skill.description}</p>
+      <a href={`/market/claude-code/skills/${skill.id}`} class="inline-block font-heading underline">Add this ware to thy basket →</a>
+      <h2 class="pt-4 font-heading text-2xl font-bold">The recipe (SKILL.md)</h2>
+      <pre class="overflow-x-auto bg-card p-4 whitespace-pre-wrap">{skillMd}</pre>
+    </div>
+    <aside class="pixel-box h-fit space-y-6 bg-card p-4 text-lg">
+      <dl class="space-y-3">
+        <div><dt class="text-muted-foreground">Version</dt><dd>{skill.version}</dd></div>
+        <div><dt class="text-muted-foreground">Charter</dt><dd>{skill.license}</dd></div>
+        <div>
+          <dt class="text-muted-foreground">Crafted by</dt>
+          <dd><a href={upstream} class="break-all underline">{skill.repo}@{skill.sha.slice(0, 7)}</a></dd>
+        </div>
+        <div><dt class="text-muted-foreground">Admitted</dt><dd>{skill.promotedAt.slice(0, 10)}</dd></div>
+        <div>
+          <dt class="text-muted-foreground">Guilds</dt>
+          <dd class="flex flex-wrap gap-1">
+            {roles.map(([id, role]) => <a href={`/roles/${id}`}><Badge variant="secondary">{role.name}</Badge></a>)}
+          </dd>
+        </div>
+      </dl>
+      <div class="space-y-2">
+        <h2 class="font-heading">The watch</h2>
+        <ul class="space-y-1">
+          {
+            skill.scan.scanners.map((s) => (
+              <li class="flex justify-between">
+                <span>{s.id} <span class="text-muted-foreground">{s.version}</span></span>
+                <Badge variant={s.blocked ? "destructive" : "outline"}>{s.blocked ? "seized" : "cleared"}</Badge>
+              </li>
+            ))
+          }
+        </ul>
+        {skill.scan.findings.length > 0 && (
+          <ul class="space-y-1 text-base text-muted-foreground">
+            {skill.scan.findings.map((f) => <li>[{f.severity}] {f.scanner}/{f.ruleId}: {f.message}</li>)}
+          </ul>
+        )}
+      </div>
+      {versions.length > 1 && (
+        <div class="space-y-1">
+          <h2 class="font-heading">Versions</h2>
+          <ul>{versions.map((v) => <li>{v.version} <span class="text-muted-foreground">{v.promotedAt.slice(0, 10)}</span></li>)}</ul>
+        </div>
+      )}
+    </aside>
+  </div>
+</Layout>

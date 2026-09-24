@@ -1,0 +1,15 @@
+---
+// 8x8 pixel sun (shown by day) and moon (shown by night) for the theme toggle.
+const SUN = ["...y....", ".y.yy.y.", "..yYYy..", "yyYYYYy.", ".yYYYYyy", "..yYYy..", ".y.yy.y.", "....y..."];
+const MOON = ["..mmm...", ".mMMm...", "mMMm....", "mMM.....", "mMM.....", "mMMm...m", ".mMMmmMm", "..mmmm.."];
+const colors: Record<string, string> = { y: "#f0b030", Y: "#ffe066", m: "#c8b070", M: "#fff1c1" };
+const cells = (grid: string[]) =>
+  grid.flatMap((row, y) => [...row].map((ch, x) => ({ x, y, fill: colors[ch] })).filter((p) => p.fill));
+---
+
+<svg class="pixel dark:hidden" width="24" height="24" viewBox="0 0 8 8" aria-hidden="true">
+  {cells(SUN).map((p) => <rect x={p.x} y={p.y} width="1" height="1" fill={p.fill} />)}
+</svg>
+<svg class="pixel hidden dark:inline" width="24" height="24" viewBox="0 0 8 8" aria-hidden="true">
+  {cells(MOON).map((p) => <rect x={p.x} y={p.y} width="1" height="1" fill={p.fill} />)}
+</svg>

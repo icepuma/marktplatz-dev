@@ -1,0 +1,63 @@
+---
+import Outline from "@/components/Outline.astro";
+import PageHead from "@/components/PageHead.astro";
+import Layout from "@/layouts/Layout.astro";
+import { author, licenseName } from "@/lib/browse";
+import { loadCatalog } from "@/lib/catalog";
+
+// Every skill in the market, by crafter repository, in the same rows as every other list. Picking happens in the shop.
+const catalog = await loadCatalog();
+const byRepo = [...Map.groupBy(catalog.skills, (s) => s.repo)].sort(([a], [b]) => a.localeCompare(b));
+const guildsOf = (id: string) => catalog.roles.filter((r) => r.skills.includes(id));
+---
+
+<Layout title="Skills" description="Every skill in the market, by crafter." crumbs={[{ label: "Skills" }]}>
+  <div class="with-outline">
+  <div class="stack stack-xl">
+    <PageHead title="Skills">
+      <p class="lede">
+        Every skill in the market: {catalog.skills.length} from {byRepo.length} crafter{byRepo.length === 1 ? "" : "s"}, each cleared
+        by the watch. Open one to read its recipe, what the watch found and how to install it. To pick several at once,
+        use <a href="/">the shop</a>.
+      </p>
+      {
+        catalog.held.length > 0 && (
+          <p class="fine">
+            {catalog.held.length} more wait <a href="/ledger#gate">at the gate</a>.
+          </p>
+        )
+      }
+    </PageHead>
+
+    {
+      byRepo.map(([repo, skills]) => (
+        <section class="stack stack-sm" id={`crafter-${repo.replace("/", "-")}`}>
+          <h2 class="section-title">
+            {repo} <span>{skills.length} skill{skills.length === 1 ? "" : "s"}</span>
+          </h2>
+          <ul class="rows">
+            {skills.map((s) => (
+              <li>
+                <a class="row" href={`/skills/${s.id}`}>
+                  <img src={`/art/skills/${s.id}.png`} alt="" width="32" height="32" class="row-icon" />
+                  <span class="row-main">
+                    <span class="row-title">
+                      <span>{s.id}</span>
+                      <span class="row-meta">
+                        {s.version} · {licenseName(s.license)} · {author(s)}
+                        {guildsOf(s.id).length > 0 && ` · ${guildsOf(s.id).map((g) => g.name).join(", ")}`}
+                      </span>
+                    </span>
+                    <span class="row-text">{s.description}</span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </div>
+  <aside class="outline-side"><Outline /></aside>
+  </div>
+</Layout>

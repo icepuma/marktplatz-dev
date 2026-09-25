@@ -1,0 +1,311 @@
+/* The site frame: skip link, top bar, banner, main column and footer. */
+
+@layer components {
+  .skip {
+    position: absolute;
+    z-index: 50;
+    top: var(--space-2);
+    left: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-family: var(--font-display);
+    transform: translateY(-200%);
+  }
+  .skip:focus {
+    transform: none;
+  }
+
+  /* The top bar: a slate strip with a keyline, like a game's menu bar. */
+  .topbar {
+    position: relative;
+    z-index: 10;
+    background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+    color: var(--panel-text);
+    box-shadow:
+      inset 0 calc(-1 * var(--line)) 0 var(--panel-keyline),
+      inset 0 calc(-2 * var(--line)) 0 var(--slate-900),
+      0 6px 20px #0b0e1855;
+  }
+  .topbar-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    min-height: 3.5rem;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--panel-text);
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
+    font-weight: 700;
+    text-decoration: none;
+    text-shadow: 2px 2px var(--slate-950);
+  }
+  .topbar-links {
+    display: flex;
+    flex: 1;
+    gap: var(--space-1);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar-links a {
+    display: block;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm);
+    color: var(--panel-muted);
+    font-family: var(--font-display);
+    font-size: var(--text-md);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .topbar-links a:hover {
+    color: var(--accent-strong);
+  }
+  .topbar-links a[aria-current="page"] {
+    background: linear-gradient(90deg, var(--select-from), var(--select-to));
+    color: var(--select-text);
+    box-shadow: inset 0 0 0 1px var(--select-line);
+  }
+  .topbar-icon {
+    display: grid;
+    width: 2.25rem;
+    height: 2.25rem;
+    flex: none;
+    place-items: center;
+    border-radius: var(--radius);
+    color: var(--panel-muted);
+  }
+  .topbar-icon:hover {
+    color: var(--accent-strong);
+  }
+  /* Below 1024px the links take their own row under the brand; on phones they wrap onto a second line rather
+     than hide off the edge, so every part of the site is always in sight. */
+  @media (max-width: 1023px) {
+    .topbar-inner {
+      flex-wrap: wrap;
+      padding-block: var(--space-2);
+    }
+    .brand {
+      margin-right: auto;
+    }
+    .topbar-links {
+      order: 3;
+      flex-basis: 100%;
+      margin-inline: calc(-1 * var(--space-3));
+    }
+  }
+  @media (max-width: 559px) {
+    .topbar-links {
+      flex-wrap: wrap;
+      overflow: visible;
+    }
+    .topbar-links a {
+      padding-inline: var(--space-2);
+      font-size: var(--text-sm);
+    }
+  }
+
+  /* Pages without the living hero get a wide crop of the painting: it covers the strip, never tiles, and fades
+     into the page at the bottom. */
+  .banner {
+    position: relative;
+    height: clamp(7rem, 13vw, 11rem);
+    /* At least 1.5× the painting's pixels, so phones see its middle at a readable size instead of a thumbnail. */
+    background: url(/art/market-day.png) center 44% / max(100%, 960px) auto no-repeat;
+    image-rendering: pixelated;
+    box-shadow: inset 0 calc(-1 * var(--line)) 0 var(--ink-rule);
+  }
+  .banner::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0;
+    height: 45%;
+    background: linear-gradient(transparent, var(--page-bg));
+  }
+  .dark .banner {
+    background-image: url(/art/market-night.png);
+  }
+
+  /* The breadcrumb bar stays at the top while you scroll; its last step jumps between the page's sections. */
+  .crumbbar {
+    position: sticky;
+    z-index: 9;
+    top: 0;
+    border-bottom: var(--line) solid var(--ink-rule);
+    background: color-mix(in srgb, var(--page-bg) 92%, transparent);
+    backdrop-filter: blur(6px);
+  }
+  .crumbbar-inner {
+    display: flex;
+    align-items: center;
+    min-height: calc(var(--space-10) + var(--space-1));
+  }
+  /* One line, always: earlier steps keep their words, the page's own name shortens with an ellipsis. */
+  .crumbbar .crumbs {
+    flex-wrap: nowrap;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .crumbs li {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+    /* base.css gives every li text-wrap: pretty, which would let a long name wrap despite the list's nowrap. */
+    white-space: nowrap;
+  }
+  .crumbs li:last-child {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+  .crumbs li:last-child > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .crumbs li + li::before {
+    content: "›";
+    color: var(--ink-muted);
+  }
+  /* The section menu: the step after the page's name, a pill that opens a small slate panel of sections. */
+  .crumbbar-inner {
+    gap: var(--space-2);
+  }
+  .crumbbar .crumbs {
+    min-width: 0;
+  }
+  /* On wide screens the outline column shows the sections, so the menu is only for narrow ones. */
+  @media (min-width: 1024px) {
+    body:has(.page-outline:not([hidden])) .crumb-menu {
+      display: none;
+    }
+  }
+  .crumb-menu {
+    position: relative;
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+  }
+  .crumb-menu::before {
+    content: "›";
+    color: var(--ink-muted);
+  }
+  .crumb-menu > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--ink-rule);
+    border-radius: var(--radius-sm);
+    list-style: none;
+    white-space: nowrap;
+  }
+  .crumb-menu > summary::-webkit-details-marker {
+    display: none;
+  }
+  .crumb-menu > summary::after {
+    content: "";
+    width: 0.4em;
+    height: 0.4em;
+    margin-top: -0.2em;
+    border-right: var(--line) solid currentColor;
+    border-bottom: var(--line) solid currentColor;
+    rotate: 45deg;
+    transition: rotate var(--duration) var(--ease);
+  }
+  .crumb-menu[open] > summary::after {
+    margin-top: 0.2em;
+    rotate: -135deg;
+  }
+  .crumb-menu > summary:hover,
+  .crumb-menu[open] > summary {
+    border-color: var(--ink-accent);
+  }
+  .crumb-list {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + var(--space-2));
+    /* It opens from the end of the bar, so it never runs off the right edge of a phone. */
+    right: 0;
+    min-width: 14rem;
+    max-width: calc(100vw - var(--space-8));
+    padding: var(--space-2);
+    border: var(--line) solid var(--panel-keyline);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+    box-shadow: var(--shadow-panel);
+  }
+  .crumb-list ul {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .crumb-list a {
+    display: block;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm);
+    color: var(--panel-muted);
+    text-decoration: none;
+  }
+  .crumb-list a:hover {
+    color: var(--accent-strong);
+  }
+  .crumb-list a[aria-current] {
+    background: linear-gradient(90deg, var(--select-from), var(--select-to));
+    color: var(--select-text);
+    box-shadow: inset 0 0 0 1px var(--select-line);
+  }
+
+  /* Sticky side columns stop below the breadcrumb bar. */
+  body:has(.crumbbar) .split-side {
+    top: calc(var(--space-12) + var(--space-4));
+  }
+  /* Anchored sections stop below the sticky breadcrumb. */
+  main [id] {
+    scroll-margin-top: calc(var(--space-12) + var(--space-2));
+  }
+
+  .site-main {
+    padding-block: var(--space-6) var(--space-12);
+  }
+  @media (min-width: 640px) {
+    .site-main {
+      padding-block: var(--space-10) var(--space-16);
+    }
+  }
+
+  .site-footer {
+    border-top: var(--line) solid var(--ink-rule);
+    color: var(--ink-muted);
+    font-size: var(--text-sm);
+  }
+  .site-footer-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding-block: var(--space-6);
+  }
+  .brand-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .footer-links {
+    --gap: var(--space-2) var(--space-4);
+  }
+  .footer-links a {
+    color: inherit;
+  }
+  .footer-links a:hover {
+    color: var(--ink);
+  }
+}

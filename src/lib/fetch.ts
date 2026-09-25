@@ -45,3 +45,39 @@ export async function stageSkill(manifest: QuarantineManifest, dest: string): Pr
     await rm(work, { recursive: true, force: true });
   }
 }
+
+/** Every tag name in `repo`. */
+export async function listTags(repo: string): Promise<string[]> {
+  const out = await $`git ls-remote --tags ${`https://github.com/${repo}.git`}`.text();
+  return out
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.split("\t")[1]!.replace(/^refs\/tags\//, ""))
+    .filter((tag) => !tag.endsWith("^{}"));
+}
+
+/**
+ * The newest release after `current` among `tags`, or null. Only tags shaped like `current` count: the same prefix
+ * followed by dot-separated numbers alone, so `v1.10.0` follows `v1.9.2`, and pre-releases (`v2.0.0-rc.1`) and
+ * other tag families (`mattpocock-skills@1.0.0` next to `v1.2.3`) are never picked.
+ */
+export function newerTag(current: string, tags: string[]): string | null {
+  const shape = (tag: string) => {
+    const m = /^(\D*)(\d+(?:\.\d+)*)$/.exec(tag);
+    return m ? { prefix: m[1]!, parts: m[2]!.split(".").map(Number) } : null;
+  };
+  const compare = (a: number[], b: number[]) => {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) - (b[i] ?? 0);
+    return 0;
+  };
+  const base = shape(current);
+  if (!base) return null;
+  let best: { tag: string; parts: number[] } | null = null;
+  for (const tag of tags) {
+    const s = shape(tag);
+    if (!s || s.prefix !== base.prefix || compare(s.parts, base.parts) <= 0) continue;
+    if (!best || compare(s.parts, best.parts) > 0) best = { tag, parts: s.parts };
+  }
+  return best?.tag ?? null;
+}

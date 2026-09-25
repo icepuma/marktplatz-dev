@@ -1,0 +1,59 @@
+---
+import { CELESTIAL, CHIMNEYS, CLOUDS, FIREFLIES, GULLS, LOOPS, MARKET_HEIGHT, MARKET_WIDTH, SKY_BOX, sceneLights } from "@/art/market";
+
+// The hero: the painted market square across the whole width, brought to life like a game screen. Sprite sheets cut from the painted
+// frames breathe, splash and glitter in place; clouds and gulls drift across the sky; smoke curls from the
+// chimneys; at night the lanterns flicker and fireflies wander. Everything is decoration (aria-hidden) and holds
+// still for visitors who prefer reduced motion. The sun (or moon) is the day/night switch.
+
+const pct = (v: number, of: number) => `${((v / of) * 100).toFixed(3)}%`;
+const box = (x: number, y: number, w: number, h: number) =>
+  `left:${pct(x, MARKET_WIDTH)};top:${pct(y, MARKET_HEIGHT)};width:${pct(w, MARKET_WIDTH)};height:${pct(h, MARKET_HEIGHT)}`;
+
+const pad = 4;
+const celestial = box(CELESTIAL.x - CELESTIAL.r - pad, CELESTIAL.y - CELESTIAL.r - pad, 2 * CELESTIAL.r + 2 * pad, 2 * CELESTIAL.r + 2 * pad);
+const glows = sceneLights("night").filter((l) => l.flicker);
+const times = ["day", "night"] as const;
+---
+
+<div class="scene">
+  <div class="stage">
+    <img src="/art/market-day.png" alt="A sunlit market square seen from above: town houses with tiled roofs, striped stalls with merchants, a fountain where three adventurers stand, townsfolk, and a railing over the sea under the sun." width={MARKET_WIDTH} height={MARKET_HEIGHT} class="hero day-only" />
+    <img src="/art/market-night.png" alt="The same market square by night under a full moon, lit by lantern strings, street lamps and glowing windows." width={MARKET_WIDTH} height={MARKET_HEIGHT} class="hero night-only" />
+    {
+      times.map((time) => (
+        <div class:list={["fx", time === "day" ? "day-only" : "night-only"]} aria-hidden="true">
+          <div class="fx-sky" style={box(SKY_BOX.x, SKY_BOX.y, SKY_BOX.w, SKY_BOX.h)}>
+            {CLOUDS.map((c) => (
+              <span
+                class="fx-cloud"
+                style={`top:${pct(c.y, SKY_BOX.h)};width:${pct(c.w, SKY_BOX.w)};height:${pct(c.h, SKY_BOX.h)};background-image:url(/art/fx/${time}-${c.id}.png);--ms:${c.ms}ms;--delay:${c.delay}ms`}
+              />
+            ))}
+          </div>
+          <div class="fx-sea" style={box(SKY_BOX.x, 0, SKY_BOX.w, 116)}>
+            {GULLS.map((g) => (
+              <span class="fx-gull" style={`top:${pct(g.y, 116)};width:${pct(7, SKY_BOX.w)};height:${pct(4, 116)};--ms:${g.ms}ms;--delay:${g.delay}ms`}>
+                <span class="fx-sheet" style={`background-image:url(/art/fx/${time}-gull.png);--n:2;--ms:${g.flap}ms`} />
+              </span>
+            ))}
+          </div>
+          {LOOPS.map((l, k) => (
+            <span class="fx-sheet" style={`${box(l.x, l.y, l.w, l.h)};background-image:url(/art/fx/${time}-${l.id}.png);--n:${l.frames.length};--ms:${l.ms}ms;--delay:-${(k * 397) % l.ms}ms`} />
+          ))}
+          {CHIMNEYS.map((c, k) =>
+            [0, 1, 2].map((p) => <span class="fx-smoke" style={`${box(c.x - 3, c.y - 3, 6, 6)};--delay:-${k * 900 + p * 1700}ms`} />),
+          )}
+          {time === "night" &&
+            glows.map((l, k) => {
+              const r = Math.max(10, l.r * 0.55);
+              return <span class="fx-glow" style={`${box(l.x - r, (l.glowY ?? l.y) - r, 2 * r, 2 * r)};--delay:-${(k * 613) % 2600}ms`} />;
+            })}
+          {time === "night" &&
+            FIREFLIES.map(([x, y], k) => <span class="fx-firefly" style={`${box(x - 2, y - 2, 4, 4)};--ms:${5200 + (k % 5) * 900}ms;--delay:-${k * 700}ms`} />)}
+        </div>
+      ))
+    }
+    <button type="button" data-theme-toggle aria-label="The sun in the sky: switch between day and night" title="Switch between day and night" class="celestial" style={celestial}></button>
+  </div>
+</div>

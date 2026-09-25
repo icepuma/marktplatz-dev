@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { newerTag } from "../src/lib/fetch";
 import { evaluateLicense } from "../src/lib/license";
 import { QuarantineManifest, Role } from "../src/lib/schema";
 import { contentHash, validateSkillDir } from "../src/lib/skill";
@@ -45,6 +46,12 @@ describe("license", () => {
     expect(() => evaluateLicense(response("NOASSERTION"))).toThrow("not a recognized");
     expect(() => evaluateLicense(response(null))).toThrow("not a recognized");
   });
+
+  test("knows a few non-SPDX licenses by their exact text", () => {
+    const databricks = "Databricks License\nCopyright (2022) Databricks, Inc.";
+    const known = (text: string) => ({ license: { spdx_id: "NOASSERTION" }, content: Buffer.from(text).toString("base64"), encoding: "base64" });
+    expect(() => evaluateLicense(known(databricks))).toThrow("not a recognized");
+  });
 });
 
 describe("skill directory", () => {
@@ -76,5 +83,16 @@ describe("skill directory", () => {
     expect(a).toBe(b);
     expect(a).not.toBe(c);
     expect(a).toMatch(/^sha256-[0-9a-f]{64}$/);
+  });
+});
+
+describe("newer upstream versions", () => {
+  test("picks the newest release, comparing numbers, not text", () => {
+    expect(newerTag("v4.9.0", ["v4.8.4", "v4.9.0", "v4.10.0", "v4.9.1"])).toBe("v4.10.0");
+    expect(newerTag("0.2.9", ["0.2.21", "0.2.10"])).toBe("0.2.21");
+  });
+  test("ignores pre-releases, other tag families and older tags", () => {
+    expect(newerTag("v1.2.3", ["v1.3.0-rc.1", "mattpocock-skills@2.0.0", "v1.2.2", "release-9"])).toBeNull();
+    expect(newerTag("v1.2.3", ["v1.2.3"])).toBeNull();
   });
 });

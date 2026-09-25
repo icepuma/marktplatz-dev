@@ -1,8 +1,16 @@
 ---
-import { Badge } from "@/components/ui/badge";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import InstallPanel from "@/components/InstallPanel";
+import Outline from "@/components/Outline.astro";
+import PageHead from "@/components/PageHead.astro";
 import Layout from "@/layouts/Layout.astro";
-import { loadCatalog } from "@/lib/catalog";
+import { author, licenseName } from "@/lib/browse";
+import { approvedDir, loadCatalog } from "@/lib/catalog";
+import { buildSha, REPO_URL } from "@/lib/site";
+import { parseSkillMd } from "@/lib/skill";
 import type { CatalogRole, CatalogSkill } from "@/lib/types";
+import { approx, charterAnchor } from "@/lib/skill-page";
 
 export async function getStaticPaths() {
   const catalog = await loadCatalog();
@@ -14,35 +22,120 @@ export async function getStaticPaths() {
 
 type Props = { role: CatalogRole; skills: CatalogSkill[] };
 const { role, skills } = Astro.props;
+const ctx = { repoUrl: REPO_URL, sha: buildSha() };
+const catalog = await loadCatalog();
+const held = role.held.map((id) => catalog.held.find((h) => h.id === id)).filter((h): h is CatalogSkill => !!h);
+const licenses = [...new Set(skills.map((s) => s.license))].sort();
+const crafters = [...new Set(skills.map((s) => author(s)))].sort();
+const cleared = skills.filter((s) => s.scan.passed).length;
+// What joining costs in context every turn: each skill's name and description.
+let always = 0;
+for (const s of skills) {
+  const { frontmatter } = parseSkillMd(await readFile(join(approvedDir(s.id, s.version), "skills", s.id, "SKILL.md"), "utf8"));
+  always += Math.ceil(`${frontmatter.name} ${frontmatter.description}`.length / 4);
+}
 ---
 
-<Layout title={role.name} description={role.description}>
-  <div class="max-w-3xl space-y-6">
-    <div class="flex items-center gap-6">
-      <img src={`/art/guilds/${role.id}.png`} alt="" width="96" height="112" class="pixel" />
-      <div class="space-y-2">
-      <p class="font-heading text-muted-foreground">The guild of</p>
-      <h1 class="adventure-heading text-4xl!">{role.name}</h1>
-      <p class="text-xl text-muted-foreground">{role.description}</p>
-      <a href={`/market/claude-code/roles/${role.id}`} class="inline-block font-heading underline">Add this guild to thy basket →</a>
+<Layout title={role.name} description={role.description} crumbs={[{ label: "Guilds", href: "/roles" }, { label: role.name }]}>
+  <div class="stack stack-xl">
+
+    <PageHead title={role.name} eyebrow="The guild of" icon={{ src: `/art/guilds/${role.id}.png`, width: 96, height: 112, shield: true }}>
+      <p class="lede">{role.description}</p>
+      <Fragment slot="meta">
+        <span class="badge">{skills.length} skill{skills.length === 1 ? "" : "s"}</span>
+        <span class="badge badge-ok">{cleared} cleared</span>
+        {held.length > 0 && <a class="badge badge-danger" href="#gate">{held.length} at the gate</a>}
+        {licenses.map((l) => <a class="badge" href={`/licenses#${charterAnchor(l)}`}>{licenseName(l)}</a>)}
+      </Fragment>
+    </PageHead>
+
+    <div class="split">
+      <div class="stack stack-xl">
+        <section class="panel stack" id="install" aria-label="Install">
+          <h2 class="name-tag">Join the guild</h2>
+          <InstallPanel
+            client:load
+            catalog={{ skills, roles: [role], held: [] }}
+            picked={{ guilds: [role], skills: [], held: [] }}
+            ctx={ctx}
+            subject={`the ${role.name} guild`}
+            page={`/roles/${role.id}`}
+          />
+          <a class="btn btn-ghost" href={`/?add=guild:${role.id}`}>Or open it in the shop and add more →</a>
+        </section>
+
+        <section class="stack">
+          <h2 class="section-title">Skills of the guild</h2>
+          <ul class="rows">
+            {
+              skills.map((skill) => (
+                <li>
+                  <a class="row" href={`/skills/${skill.id}`}>
+                    <img src={`/art/skills/${skill.id}.png`} alt="" width="32" height="32" class="row-icon" />
+                    <span class="row-main">
+                      <span class="row-title">
+                        {skill.id}{" "}
+                        <span class="row-meta">{skill.version} · {licenseName(skill.license)} · {author(skill)}</span>
+                      </span>
+                      <span class="row-text">{skill.description}</span>
+                    </span>
+                  </a>
+                </li>
+              ))
+            }
+          </ul>
+        </section>
+
+        {
+          held.length > 0 && (
+            <section class="stack" id="gate">
+              <h2 class="section-title">
+                At the gate <span>{held.length} not cleared</span>
+              </h2>
+              <div class="note note-danger">
+                These belong to the guild but did not clear the watch, so joining the guild does not bring them. Read their findings to see why; nothing here is a verdict on the skill or its crafter.
+              </div>
+              <ul class="rows">
+                {held.map((skill) => (
+                  <li>
+                    <a class="row" href={`/ledger#held-${skill.id}`}>
+                      <img src={`/art/skills/${skill.id}.png`} alt="" width="32" height="32" class="row-icon" />
+                      <span class="row-main">
+                        <span class="row-title">
+                          {skill.id}{" "}
+                          <span class="row-meta">{skill.version} · {licenseName(skill.license)} · {author(skill)}</span>
+                          <span class="badge badge-danger">not cleared</span>
+                        </span>
+                        <span class="row-text">{skill.description}</span>
+                      </span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+              <a class="btn btn-ghost" href={`/?add=guild:${role.id}&held=1`}>Open the guild in the shop with them →</a>
+            </section>
+          )
+        }
       </div>
+
+      <aside class="stack stack-lg split-side">
+        <section class="panel">
+          <h2 class="name-tag">At a glance</h2>
+          <dl class="facts">
+            <dt>Skills</dt><dd>{skills.length}</dd>
+            <dt>Crafters</dt><dd>{crafters.join(", ")}</dd>
+            <dt>Charters</dt><dd>{licenses.map(licenseName).join(", ")}</dd>
+            <dt>Context</dt><dd>{approx(always)} tokens every turn</dd>
+          </dl>
+        </section>
+        <section class="panel">
+          <h2 class="name-tag">Kept by hand</h2>
+          <p class="muted">
+            Guilds are put together by the market's keeper, not by popularity. Every skill in them passed <a href="/watch">the watch</a>.
+          </p>
+        </section>
+        <Outline />
+      </aside>
     </div>
-    <ul class="pixel-box divide-y-2 divide-dashed divide-border/40 bg-card">
-      {
-        skills.map((skill) => (
-          <li class="flex items-start gap-4 p-4">
-            <img src={`/art/wares/${skill.id}.png`} alt="" width="64" height="64" class="pixel" />
-            <div>
-            <div class="flex flex-wrap items-center gap-2">
-              <a href={`/skills/${skill.id}`} class="font-heading text-lg hover:underline">{skill.id}</a>
-              <Badge variant="outline">{skill.version}</Badge>
-              <Badge variant="outline">{skill.license}</Badge>
-            </div>
-            <p class="mt-1 text-muted-foreground">{skill.description}</p>
-            </div>
-          </li>
-        ))
-      }
-    </ul>
   </div>
 </Layout>

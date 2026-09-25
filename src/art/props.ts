@@ -1,441 +1,706 @@
-import { type Canvas, type Color, mix } from "./canvas";
-import { clamp, fill, noise, planks, RAMPS, ramp, shadow, smooth } from "./paint";
+import { type Canvas, type Color, mix, rng } from "./canvas";
+import { clamp, noise } from "./paint";
 
-// Detailed props for the market scene. Light sources register a glow via `glow`, drawn only at night.
+// Props for the square, drawn in the game's steep top-down view: you see the top of everything (lids, rims,
+// table tops) and the side that faces you. Shading follows the one sun, up and to the right.
 
-/** Drawn at night on the graded image; `scene` is the finished daylight scene, for occlusion checks. */
-export type Glow = (c: Canvas, scene: Canvas) => void;
+export type Ramp = readonly Color[];
 
-/**
- * A glow that only lights the pixels of a region that are still visible in the finished scene,
- * so windows hidden behind stalls stay dark. Snapshots the region when called.
- */
-export function visibleGlow(
-  c: Canvas,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  draw: (g: Canvas, visible: (i: number, j: number) => boolean) => void,
-): Glow {
-  const snap: (Color | null)[] = [];
-  for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) snap.push(c.get(i, j));
-  return (g, scene) => {
-    const visible = (i: number, j: number) =>
-      i >= x && j >= y && i < x + w && j < y + h && snap[(j - y) * w + (i - x)] !== null && scene.get(i, j) === snap[(j - y) * w + (i - x)];
-    let seen = 0;
-    for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (visible(i, j)) seen++;
-    if (seen / (w * h) < 0.5) return;
-    draw(g, visible);
+export const WOOD = ["#2f1c20", "#4e2e28", "#6e4232", "#8e5a3e", "#ae7650", "#c99466"] as const;
+export const PALE_WOOD = ["#4a3228", "#7a5638", "#a07448", "#bf935e", "#d6ae78", "#e8c890"] as const;
+export const IRON = ["#1e1c26", "#34303e", "#4c4858", "#6c6878", "#928ea0"] as const;
+export const BURLAP = ["#4c3a2c", "#7a6046", "#a08262", "#c0a47e", "#dcc49c"] as const;
+export const CLAY = ["#4a2226", "#7a3a30", "#a2543e", "#c2704e", "#dc9068", "#eeb088"] as const;
+export const STONE = ["#3e3644", "#5e5462", "#7e737e", "#9c9198", "#bab0b0", "#d4ccc4"] as const;
+export const WATER = ["#163e56", "#1e5a74", "#2c7890", "#4c9cb0", "#86c6d0", "#c8ecec", "#f6fffc"] as const;
+export const GOLD = ["#5a3a1a", "#946224", "#c89232", "#eab848", "#f8dc7a", "#fff4c0"] as const;
+
+const shadeAcross = (u: number, n = 4) => Math.max(0, Math.min(n, Math.round((0.45 + u * 0.4) * n)));
+
+// ---------------------------------------------------------------- containers
+
+/** A barrel: bulging staves lit from the right, two iron hoops, and its lid seen from above. */
+export function barrel(c: Canvas, x: number, gy: number, w = 12, h = 14, fill?: (c: Canvas, cx: number, cy: number, rx: number, ry: number) => void) {
+  const rx = w / 2;
+  const cx = x + rx;
+  const ry = Math.max(2.5, w * 0.28);
+  const top = gy - h;
+  for (let y = top; y <= gy; y++) {
+    const t = (y - top) / h;
+    const bulge = Math.sin(t * Math.PI) * 1.2;
+    const half = rx + bulge;
+    const sag = ry * Math.sqrt(1);
+    for (let xx = Math.floor(cx - half); xx <= cx + half; xx++) {
+      const u = (xx + 0.5 - cx) / half;
+      if (Math.abs(u) > 1) continue;
+      const bottomCurve = gy - ry * 0.5 + Math.sqrt(Math.max(0, 1 - u * u)) * ry * 0.5;
+      if (y > bottomCurve) continue;
+      const hoop = Math.abs(t - 0.22) < 0.07 || Math.abs(t - 0.78) < 0.07;
+      const stave = Math.round((xx - cx) / 3) * 3 === Math.round(xx - cx) && Math.abs(u) < 0.9;
+      let k = shadeAcross(u, 5);
+      if (stave) k = Math.max(0, k - 1);
+      if (hoop) c.px(xx, y, IRON[Math.min(4, Math.max(0, k - 1))]!);
+      else c.px(xx, y, WOOD[k]!);
+      void sag;
+    }
+  }
+  // Lid.
+  c.ellipse(cx, top, rx, ry, (_, yy, u, v) => {
+    const rim = u * u + v * v > 0.62;
+    if (rim) return v < 0 ? WOOD[5]! : WOOD[3]!;
+    return (yy - Math.round(top)) % 3 === 0 ? WOOD[2]! : u > 0.2 ? WOOD[4]! : WOOD[3]!;
+  });
+  if (fill) fill(c, cx, top, rx - 1.5, ry - 1);
+}
+
+/** A wooden crate: lit top planks, a front face with a diagonal brace, nail heads. */
+export function crate(c: Canvas, x: number, gy: number, w = 14, h = 10, d = 7, wood: Ramp = PALE_WOOD) {
+  const top = gy - h;
+  // Top face.
+  for (let j = 0; j < d; j++) {
+    for (let i = 0; i < w; i++) {
+      let k = j % 3 === 2 ? 2 : 4;
+      if (i === w - 1) k = 5;
+      c.px(x + i, top - d + j, wood[k]!);
+    }
+  }
+  // Front face.
+  for (let j = 0; j < h; j++) {
+    for (let i = 0; i < w; i++) {
+      const frame = i < 2 || i > w - 3 || j < 2 || j > h - 3;
+      let k = frame ? 3 : j % 3 === 2 ? 1 : 2;
+      if (!frame && Math.abs(i - 2 - (j - 2) * ((w - 4) / Math.max(1, h - 4))) < 1.2) k = 3; // brace
+      if (i === w - 1) k = Math.min(5, k + 1);
+      c.px(x + i, top + j, wood[k]!);
+    }
+  }
+  for (const [i, j] of [
+    [1, 1],
+    [w - 2, 1],
+    [1, h - 2],
+    [w - 2, h - 2],
+  ] as const)
+    c.px(x + i, top + j, IRON[1]!);
+}
+
+/** A burlap sack, tied at the neck, slumped a little to one side. */
+export function sack(c: Canvas, cx: number, gy: number, w = 11, h = 12, grain?: Color) {
+  const rx = w / 2;
+  for (let y = gy - h; y <= gy; y++) {
+    const t = (y - (gy - h)) / h;
+    const half = t < 0.25 ? rx * 0.45 + t * 2 : rx * Math.sin(Math.min(1, (t - 0.1) * 1.35) * Math.PI * 0.62 + 0.55);
+    for (let x = Math.floor(cx - half); x <= cx + half; x++) {
+      const u = (x + 0.5 - cx) / Math.max(1, half);
+      let k = shadeAcross(u, 4);
+      if (t > 0.88) k = Math.max(0, k - 1);
+      if ((x + y) % 4 === 0) k = Math.max(0, k - 1); // weave
+      c.px(x, y, BURLAP[k]!);
+    }
+  }
+  // Tie and an open mouth with grain.
+  c.hline(Math.round(cx - 2), Math.round(cx + 2), gy - h + 3, "#5a3a26");
+  if (grain) c.ellipse(cx, gy - h, rx * 0.55, 1.6, grain);
+}
+
+/** A clay pot or amphora: dark mouth, round lit belly. */
+export function pot(c: Canvas, cx: number, gy: number, r = 5, h = 10, clay: Ramp = CLAY) {
+  const top = gy - h;
+  for (let y = top; y <= gy; y++) {
+    const t = (y - top) / h;
+    const half = t < 0.18 ? r * 0.62 : r * Math.sin(0.35 + t * 2.4) * (t > 0.9 ? 0.85 : 1);
+    for (let x = Math.floor(cx - half); x <= cx + half; x++) {
+      const u = (x + 0.5 - cx) / Math.max(1, half);
+      const v = t * 2 - 1;
+      c.px(x, y, clay[Math.max(0, Math.min(5, Math.round(2.6 + u * 1.6 - v * 0.9)))]!);
+    }
+  }
+  c.ellipse(cx, top, r * 0.62, 1.4, (_, __, u, v) => (v < 0 && u * u + v * v > 0.4 ? clay[5]! : "#2a1418"));
+  c.hline(Math.round(cx - r * 0.5), Math.round(cx + r * 0.5), Math.round(top + h * 0.3), clay[1]!); // painted band
+}
+
+/** A woven basket with something in it. */
+export function basket(c: Canvas, cx: number, gy: number, w = 14, h = 6, contents?: (c: Canvas, cx: number, cy: number, rx: number) => void) {
+  const rx = w / 2;
+  const top = gy - h;
+  if (contents) contents(c, cx, top, rx - 1);
+  for (let y = top; y <= gy; y++) {
+    for (let x = Math.floor(cx - rx); x <= cx + rx; x++) {
+      const u = (x + 0.5 - cx) / rx;
+      if (y > gy - 1 && Math.abs(u) > 0.8) continue;
+      const weave = (x + (y % 2) * 2) % 4 < 2;
+      let k = shadeAcross(u, 3) + (weave ? 1 : 0);
+      if (y === top) k = 4;
+      c.px(x, y, PALE_WOOD[Math.min(5, k)]!);
+    }
+  }
+}
+
+/** A heap of round fruit (apples, oranges, plums) with highlights, piled in rows. */
+export function fruitPile(colors: Ramp) {
+  return (c: Canvas, cx: number, cy: number, rx: number) => {
+    const r = rng(Math.round(cx * 7 + cy));
+    for (let row = 0; row < 3; row++) {
+      const y = cy - row * 2;
+      const span = rx - row * 2;
+      for (let x = cx - span; x <= cx + span; x += 3) {
+        const fx = Math.round(x + r.int(0, 1));
+        c.px(fx, y, colors[2]!);
+        c.px(fx + 1, y, colors[1]!);
+        c.px(fx, y - 1, colors[3]!);
+        c.px(fx + 1, y - 1, colors[2]!);
+        c.px(fx - 1, y, colors[1]!);
+        if (r.chance(0.5)) c.px(fx, y - 1, colors[4]!);
+      }
+    }
   };
 }
 
-const OUTLINE = "#1a1020";
+export const APPLES = ["#4a1418", "#8a2226", "#c43a34", "#e8664e", "#ffc0a0"] as const;
+export const ORANGES = ["#5a2a10", "#a4501a", "#e08028", "#f8a840", "#ffe0a0"] as const;
+export const PLUMS = ["#241230", "#4a2260", "#6e3a8a", "#9a5ab8", "#d0a0e8"] as const;
+export const GREENS = ["#1e3a1e", "#3a6a2a", "#5a9a3a", "#86c24a", "#c4e88a"] as const;
 
-export const LIQUIDS: [Color, Color, Color][] = [
-  ["#6a1010", "#c02828", "#ff6a5a"],
-  ["#10501e", "#28a040", "#7ae88a"],
-  ["#10286a", "#2a60d0", "#7aaaff"],
-  ["#3a1060", "#8040c0", "#c890ff"],
-  ["#6a4a08", "#d0a020", "#ffe070"],
-  ["#085050", "#20a8a8", "#80f0f0"],
-];
+// ---------------------------------------------------------------- lights and fixtures
 
-/** A potion bottle in one of several shapes; returns the height drawn. `x, y` is the bottom-left. */
-export function bottle(c: Canvas, x: number, y: number, shape: number, liquid: [Color, Color, Color], glows: Glow[]) {
-  const glass = ["#2a2440", mix(liquid[0], "#8aa0c8", 0.6), "#d8e8ff"];
-  const kinds = [
-    { w: 9, h: 11, neck: 3, round: true },
-    { w: 6, h: 13, neck: 4, round: false },
-    { w: 8, h: 9, neck: 2, round: false },
-    { w: 11, h: 12, neck: 3, round: true },
-    { w: 5, h: 10, neck: 5, round: false },
-  ];
-  const k = kinds[shape % kinds.length]!;
-  const bodyH = k.h - k.neck - 2;
-  const cx = x + k.w / 2 - 0.5;
-  const level = 0.15 + noise(x, y, 4) * 0.25;
-  // Body.
-  for (let j = 0; j < bodyH; j++) {
-    for (let i = 0; i < k.w; i++) {
-      const u = (i - (k.w - 1) / 2) / (k.w / 2);
-      const v = (j - (bodyH - 1) / 2) / (bodyH / 2);
-      if (k.round && u * u + v * v > 1.05) continue;
-      if (!k.round && (j === 0 || j === bodyH - 1) && (i === 0 || i === k.w - 1)) continue;
-      const px = x + i;
-      const py = y - bodyH + j;
-      const edge = k.round ? u * u + v * v > 0.7 : i === 0 || i === k.w - 1 || j === bodyH - 1;
-      const filled = j / bodyH > level;
-      let color: Color;
-      if (edge) color = glass[0]!;
-      else if (filled) color = ramp(liquid, clamp(0.75 - u * 0.4 - (j / bodyH - level) * 0.6), px, py);
-      else color = glass[1]!;
-      c.px(px, py, color);
+/**
+ * A street lamp in the game's manner: a stout iron post on a stone foot, a scrolled bracket, and a lantern hanging
+ * from it with a pyramid cap and a glowing belly. Returns where the flame is.
+ */
+export function lampPost(c: Canvas, x: number, gy: number, h = 46, night = false): { x: number; y: number } {
+  // Stone foot.
+  for (let j = 0; j < 6; j++) {
+    const half = j < 2 ? 5 : 4;
+    for (let i = -half; i <= half; i++) {
+      let k = i > 1 ? 4 : i > -2 ? 3 : 2;
+      if (j === 5) k = 5;
+      if (j === 0) k = 1;
+      c.px(x + i, gy - j, STONE[k]!);
     }
   }
-  // Surface line, highlight and a label.
-  const surf = y - bodyH + Math.ceil(level * bodyH);
-  for (let i = 1; i < k.w - 1; i++) if (!k.round || Math.abs(i - (k.w - 1) / 2) < k.w / 2 - 1) c.px(x + i, surf, liquid[2]);
-  c.px(x + 1 + (k.round ? 1 : 0), y - bodyH + 2, "#ffffff");
-  c.px(x + 1 + (k.round ? 1 : 0), y - bodyH + 3, glass[2]!);
-  if (!k.round && k.w >= 6) fill(c, x + 1, y - Math.floor(bodyH / 2) - 1, k.w - 2, 3, (i) => (i === x + 1 ? "#d8c8a0" : "#f0e4c4"));
-  // Neck and cork.
-  const nw = Math.max(2, Math.round(k.w / 3));
-  const nx = Math.round(cx - nw / 2 + 0.5);
-  fill(c, nx, y - bodyH - k.neck, nw, k.neck, (i) => (i === nx ? glass[2]! : glass[1]!));
-  fill(c, nx - 1, y - bodyH - k.neck - 2, nw + 2, 2, (i) => (i === nx - 1 ? "#b8804a" : "#7a4a2a"));
-  glows.push((g) => g.light(cx, y - bodyH / 2, k.w + 3, liquid[2], 0.35));
-  return k.h;
-}
-
-export function book(c: Canvas, x: number, y: number, w: number, h: number, cover: readonly Color[], seed: number) {
-  fill(c, x, y - h, w, h, (i, j) => {
-    const u = (i - x) / Math.max(1, w - 1);
-    if (i === x || i === x + w - 1 || j === y - h) return cover[0]!;
-    const band = (j - (y - h)) % Math.max(4, Math.floor(h / 3)) === 1;
-    if (band) return RAMPS.gold[3]!;
-    return ramp(cover, clamp(0.8 - u * 0.6 + (noise(i, j, seed) - 0.5) * 0.15), i, j);
-  });
-}
-
-export function books(c: Canvas, x: number, y: number, count: number, seed: number) {
-  const covers = [RAMPS.cloth.red, RAMPS.cloth.blue, RAMPS.cloth.green, RAMPS.cloth.purple, RAMPS.roofBrown];
-  let bx = x;
-  for (let k = 0; k < count; k++) {
-    const w = 3 + Math.floor(noise(k, 0, seed) * 3);
-    const h = 9 + Math.floor(noise(k, 1, seed) * 6);
-    book(c, bx, y, w, h, covers[Math.floor(noise(k, 2, seed) * covers.length)]!, seed + k);
-    bx += w;
+  // Post: three pixels wide, lit on the right, with collars.
+  for (let y = gy - h; y < gy - 5; y++) {
+    c.px(x - 1, y, IRON[1]!);
+    c.px(x, y, IRON[2]!);
+    c.px(x + 1, y, IRON[3]!);
   }
-  return bx - x;
+  for (const cy of [gy - 9, gy - h + 6]) {
+    c.hline(x - 2, x + 2, cy, IRON[3]!);
+    c.hline(x - 2, x + 2, cy + 1, IRON[1]!);
+  }
+  // Finial and a scrolled bracket reaching right.
+  c.rect(x - 1, gy - h - 3, 3, 3, IRON[2]!);
+  c.px(x + 1, gy - h - 3, IRON[4]!);
+  const top = gy - h + 2;
+  for (let i = 1; i <= 8; i++) c.px(x + 1 + i, top, IRON[i > 6 ? 3 : 2]!);
+  c.px(x + 2, top + 1, IRON[2]!);
+  c.px(x + 3, top + 2, IRON[2]!);
+  c.px(x + 4, top + 2, IRON[3]!);
+  c.px(x + 5, top + 1, IRON[2]!);
+  // The lantern hangs from the bracket's end.
+  const lx = x + 9;
+  const ly = top + 2;
+  c.px(lx, top + 1, IRON[1]!);
+  for (let j = 0; j < 3; j++) c.hline(lx - 1 - j, lx + 1 + j, ly + j, j === 2 ? IRON[1]! : j === 0 ? IRON[4]! : IRON[3]!);
+  for (let j = 3; j < 10; j++) {
+    for (let i = -3; i <= 3; i++) {
+      const frame = Math.abs(i) === 3 || i === 0 && j === 6;
+      const glass = night ? (j < 6 ? "#fff4c8" : "#ffc864") : i > 0 ? "#cfe6f2" : j < 5 ? "#a8c8dc" : "#86a8c4";
+      c.px(lx + i, ly + j, frame ? IRON[1]! : glass);
+    }
+  }
+  c.hline(lx - 3, lx + 3, ly + 10, IRON[2]!);
+  c.hline(lx - 1, lx + 1, ly + 11, IRON[1]!);
+  if (!night) c.px(lx + 2, ly + 4, "#ffffff"); // a glint on the glass
+  return { x: lx, y: ly + 6 };
 }
 
-/** An open book lying on a counter. */
-export function openBook(c: Canvas, x: number, y: number) {
-  fill(c, x, y - 3, 22, 3, (i) => (i === x + 10 || i === x + 11 ? "#5a2a1a" : "#7a3a24"));
-  for (const [px, dir] of [
-    [x + 1, 1],
-    [x + 11, -1],
+/** The wooden railing along the edge of the square: log posts with ringed tops, two rails, a sagging rope. */
+export function railing(c: Canvas, x0: number, x1: number, gy: number, seed: number) {
+  const r = rng(seed);
+  const posts: number[] = [];
+  for (let x = x0 + 4; x < x1; x += r.int(26, 32)) posts.push(x);
+  // Rails, behind the posts.
+  for (const [hgt, thick] of [
+    [15, 3],
+    [8, 2],
   ] as const) {
-    fill(c, px, y - 6, 10, 4, (i, j) => {
-      const t = dir > 0 ? (i - px) / 9 : 1 - (i - px) / 9;
-      if (j === y - 6 && ((dir > 0 && i === px) || (dir < 0 && i === px + 9))) return null;
-      return (i + j) % 3 === 0 && j > y - 5 && i > px && i < px + 9 ? "#8a7a60" : ramp(RAMPS.cloth.cream, 0.6 + t * 0.3, i, j);
+    for (let x = x0; x < x1; x++) {
+      for (let j = 0; j < thick; j++) c.px(x, gy - hgt + j, WOOD[j === 0 ? 4 : j === thick - 1 ? 2 : 3]!);
+    }
+  }
+  // Rope swags between posts.
+  for (let k = 0; k + 1 < posts.length; k++) {
+    const a = posts[k]!;
+    const b = posts[k + 1]!;
+    for (let x = a; x <= b; x++) {
+      const t = (x - a) / (b - a);
+      const y = Math.round(gy - 18 + Math.sin(t * Math.PI) * 4);
+      c.px(x, y, (x & 1) === 0 ? "#c8a878" : "#8a6a48");
+    }
+  }
+  for (const px of posts) {
+    for (let y = gy - 20; y <= gy; y++) {
+      for (let i = -2; i <= 2; i++) c.px(px + i, y, WOOD[[1, 2, 3, 4, 3][i + 2]!]!);
+    }
+    c.ellipse(px, gy - 21, 2.5, 1.4, (_, __, u, v) => (u * u + v * v < 0.35 ? PALE_WOOD[3]! : PALE_WOOD[5]!));
+    c.px(px, gy - 21, PALE_WOOD[2]!);
+    // Rope lashing.
+    for (let j = 0; j < 3; j++) c.hline(px - 2, px + 2, gy - 17 + j, j === 1 ? "#8a6a48" : "#c8a878");
+  }
+}
+
+/** A plank bench seen from above: seat boards on two stout legs. */
+export function bench(c: Canvas, x: number, gy: number, w = 26) {
+  for (let i = 0; i < w; i++) {
+    c.px(x + i, gy - 9, PALE_WOOD[5]!);
+    c.px(x + i, gy - 8, PALE_WOOD[4]!);
+    c.px(x + i, gy - 7, (i & 7) === 7 ? PALE_WOOD[2]! : PALE_WOOD[4]!);
+    c.px(x + i, gy - 6, PALE_WOOD[2]!);
+  }
+  for (const lx of [x + 2, x + w - 4]) for (let j = -5; j <= 0; j++) c.rect(lx, gy + j, 2, 1, j === 0 ? WOOD[1]! : WOOD[2]!);
+}
+
+// ---------------------------------------------------------------- the fountain
+
+/**
+ * The fountain, the square's centrepiece: a round stone basin seen from above (a dressed rim, the inner wall, water
+ * with ripple rings and a bright sky reflection), a carved pedestal rising from the water to a flared upper bowl,
+ * a golden sun on top. Jets arc from the sun into the bowl, which spills over its lip in thin curtains that foam
+ * where they land. `frame` (0-3) moves the water.
+ */
+export function fountain(c: Canvas, cx: number, cy: number, rx: number, ry: number, seed: number, frame = 0) {
+  const r = rng(seed + frame * 101);
+  const wallH = 7;
+  // Outer wall of the basin (the part that faces us), below the rim: dressed blocks.
+  for (let x = Math.floor(cx - rx); x <= cx + rx; x++) {
+    const u = (x + 0.5 - cx) / rx;
+    const yRim = cy + Math.sqrt(Math.max(0, 1 - u * u)) * ry;
+    for (let y = Math.floor(yRim); y <= yRim + wallH; y++) {
+      const seam = (x - cx + 200) % 8 === 0;
+      let k = shadeAcross(u, 5);
+      if (seam) k = Math.max(0, k - 2);
+      if (y > yRim + wallH - 1) k = 0;
+      else if (y > yRim + wallH - 3) k = Math.max(0, k - 1);
+      c.px(x, y, STONE[Math.min(5, k)]!);
+    }
+  }
+  // Rim top: a ring of dressed stones with a moulded edge.
+  c.ellipse(cx, cy, rx, ry, (_, __, u, v) => {
+    const d = u * u + v * v;
+    if (d < 0.68) return null;
+    const a = Math.atan2(v, u);
+    const seam = Math.abs(((a / (Math.PI * 2)) * 24 + 24) % 1) < 0.07;
+    const lit = v < -0.2 ? 5 : u > 0.3 ? 4 : v > 0.5 ? 2 : 3;
+    if (seam) return STONE[1]!;
+    return d > 0.94 ? STONE[Math.max(1, lit - 2)]! : d < 0.74 ? STONE[Math.max(1, lit - 1)]! : STONE[lit]!;
+  });
+  // Inner wall (visible at the back) and the water.
+  const irx = rx * 0.83;
+  const iry = ry * 0.8;
+  const px0 = cx;
+  const py0 = cy + 1;
+  c.ellipse(cx, cy, irx, iry, (x, y, u, v) => {
+    const d = u * u + v * v;
+    if (v < 0 && d > 0.55) return d > 0.82 ? STONE[1]! : STONE[2]!; // the inner wall, in shade
+    // Water: ripple rings travelling out from the pedestal, the sky's reflection at the back, glints.
+    const ring = Math.hypot((x - px0) / irx, ((y - py0) / iry) * 1.1);
+    const phase = (ring * 7 - frame * 0.25 + 8) % 1;
+    const ripple = ring > 0.28 && Math.abs(phase - 0.5) < 0.08;
+    let k = v < -0.35 ? 3 : v < 0.25 ? 2 : 3;
+    if (v < -0.2 && v > -0.45 && Math.abs(u) < 0.6) k = 4; // sky reflection
+    if (ripple) k += 1;
+    if (d > 0.9) k = Math.max(1, k - 1); // shade under the rim
+    if (noise(x, y, seed + 1 + frame) < 0.018) k = 6;
+    return WATER[Math.min(6, k)]!;
+  });
+  // Pedestal: a round plinth in the water, a column with a carved band, then the upper bowl.
+  c.ellipse(cx, cy + 1, 9, 3.5, (_, __, u, v) => STONE[v < -0.3 ? 5 : u > 0.2 ? 4 : 3]!);
+  const colTop = cy - 18;
+  for (let y = colTop; y <= cy; y++) {
+    const half = y > cy - 4 ? 5 : y < colTop + 3 ? 4 : 3;
+    for (let i = -half - 1; i <= half + 1; i++) {
+      if (Math.abs(i) === half + 1) {
+        c.px(cx + i, y, "#2a2436"); // outline the column against the water
+        continue;
+      }
+      let k = shadeAcross(i / half, 5);
+      if (y === cy - 9 || y === cy - 8) k = Math.min(5, k + 1); // carved band
+      if (y === cy - 7) k = Math.max(0, k - 2);
+      c.px(cx + i, y, STONE[k]!);
+    }
+  }
+  // Splash ring where the curtains hit the basin water around the plinth.
+  c.ellipse(cx, cy + 2, 13, 4, (x, y, u, v) => {
+    const d = u * u + v * v;
+    if (d < 0.55) return null;
+    return noise(x + frame * 3, y, seed + 9) < 0.55 ? WATER[6]! : WATER[5]!;
+  });
+  // Upper bowl: flared, with a lit lip and water inside.
+  const by = colTop - 3;
+  for (let x = Math.floor(cx - 15); x <= cx + 15; x++) {
+    const u = (x + 0.5 - cx) / 15;
+    const depth = 3 + Math.sqrt(Math.max(0, 1 - u * u)) * 5;
+    for (let y = by; y <= by + depth + 1; y++) {
+      const edge = y > by + depth || Math.abs(u) > 0.94;
+      c.px(x, y, edge ? "#2a2436" : STONE[Math.max(1, shadeAcross(u, 5) - (y > by + depth - 2 ? 1 : 0))]!);
+    }
+  }
+  c.ellipse(cx, by, 15, 4.5, (_, __, u, v) => {
+    const d = u * u + v * v;
+    if (d > 0.9) return "#2a2436";
+    if (d > 0.58) return STONE[v < 0 ? 5 : 4]!;
+    return WATER[v < -0.25 ? 5 : u > 0.25 ? 4 : 3]!;
+  });
+  // The golden sun on its stem.
+  c.rect(cx - 1, by - 7, 3, 7, STONE[3]!);
+  c.px(cx + 1, by - 7, STONE[5]!);
+  c.px(cx - 2, by - 3, "#2a2436");
+  c.px(cx + 2, by - 3, "#2a2436");
+  const sy = by - 12;
+  // Rays: short gold spikes all round, lit on the upper right.
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2;
+    for (let t = 5; t <= 7; t++) {
+      const x = Math.round(cx + Math.cos(a) * t);
+      const y = Math.round(sy + Math.sin(a) * t * 0.9);
+      c.px(x, y, t === 7 ? GOLD[2]! : Math.cos(a) - Math.sin(a) > 0 ? GOLD[4]! : GOLD[3]!);
+    }
+  }
+  c.ellipse(cx, sy, 4.5, 4.5, (_, __, u, v) => (u * u + v * v > 0.8 ? GOLD[1]! : GOLD[u - v > 0.6 ? 5 : u - v > -0.2 ? 4 : 3]!));
+  c.px(cx + 2, sy - 2, "#ffffff");
+  // Jets arcing from the sun down into the bowl.
+  for (const dir of [-1, 1]) {
+    for (let s = 0; s <= 10; s++) {
+      const t = s / 10;
+      const x = Math.round(cx + dir * (3 + t * 9));
+      const y = Math.round(sy - 2 - Math.sin(t * Math.PI) * 6 + t * 10);
+      c.px(x, y, WATER[(s + frame) % 3 === 0 ? 6 : 5]!);
+    }
+  }
+  // Curtains spilling over the bowl's lip into the basin.
+  for (const dx of [-13, -8, 8, 13]) {
+    for (let y = by + 3; y < cy + 1; y++) {
+      const x = cx + dx + (y > cy - 4 ? Math.sign(dx) : 0);
+      c.px(x, y, WATER[(y + frame) % 4 === 0 ? 6 : 5]!);
+      if ((y + frame * 2) % 5 === 0) c.px(x + Math.sign(dx), y, WATER[4]!);
+    }
+  }
+  // Droplets and foam where the water lands.
+  const sparkles: [number, number][] = [];
+  for (let k = 0; k < 12; k++) {
+    const x = cx + r.int(-16, 16);
+    const y = cy + r.int(-1, 4);
+    if (Math.abs(x - cx) < 5) continue;
+    c.px(x, y, WATER[r.chance(0.5) ? 6 : 5]!);
+    sparkles.push([x, y]);
+  }
+  return sparkles;
+}
+
+export const tone = (color: Color, t: number) => mix(color, "#000000", clamp(t));
+
+// ---------------------------------------------------------------- square furniture
+
+/** The notice board, a little roofed board on two posts with papers pinned to it. */
+export function noticeBoard(c: Canvas, x: number, gy: number, seed: number) {
+  const r = rng(seed);
+  const w = 26;
+  for (const px of [x + 2, x + w - 5]) for (let y = gy - 30; y <= gy; y++) for (let i = 0; i < 3; i++) c.px(px + i, y, WOOD[[2, 4, 3][i]!]!);
+  // Board and frame.
+  for (let y = gy - 26; y < gy - 10; y++) {
+    for (let i = 0; i < w; i++) {
+      const frame = i < 2 || i > w - 3 || y < gy - 24 || y > gy - 13;
+      c.px(x + i, y, frame ? WOOD[frame && (i === w - 1 || y === gy - 26) ? 4 : 2]! : (i + y) % 7 === 0 ? PALE_WOOD[2]! : PALE_WOOD[3]!);
+    }
+  }
+  // Papers with scribbles and red pins.
+  for (let k = 0; k < 4; k++) {
+    const px = x + 3 + k * 5 + r.int(0, 1);
+    const py = gy - 24 + r.int(0, 3);
+    const h = r.int(6, 8);
+    for (let j = 0; j < h; j++) for (let i = 0; i < 4; i++) c.px(px + i, py + j, j === 0 ? "#fffaf0" : i === 3 ? "#d8ccb0" : "#f2e8d0");
+    for (let j = 2; j < h - 1; j += 2) c.hline(px + 1, px + 2 - (j % 4 === 0 ? 1 : 0), py + j, "#8a8070");
+    c.px(px + 1, py, r.pick(["#d83a3a", "#3a6ad8", "#e8b83a"]));
+  }
+  // A little roof of two planks.
+  for (let i = -2; i < w + 2; i++) {
+    c.px(x + i, gy - 30, WOOD[4]!);
+    c.px(x + i, gy - 29, WOOD[3]!);
+    c.px(x + i, gy - 28, WOOD[1]!);
+  }
+}
+
+/** A round tavern table with two stools and mugs of ale. */
+export function tavernTable(c: Canvas, cx: number, gy: number) {
+  for (const sx of [cx - 13, cx + 10]) {
+    for (let j = 0; j < 5; j++) c.hline(sx, sx + 2, gy - j, WOOD[j === 4 ? 4 : 2]!);
+    c.ellipse(sx + 1, gy - 6, 3, 1.5, (_, __, _u, v) => (v < 0 ? PALE_WOOD[5]! : PALE_WOOD[3]!));
+  }
+  c.rect(cx - 1, gy - 9, 3, 9, WOOD[2]!);
+  c.px(cx + 1, gy - 9, WOOD[4]!);
+  c.hline(cx - 4, cx + 4, gy, WOOD[1]!);
+  c.ellipse(cx, gy - 11, 9, 3.5, (x, y, u, v) => (u * u + v * v > 0.75 ? (v < 0 ? PALE_WOOD[5]! : PALE_WOOD[2]!) : (x + y) % 5 === 0 ? PALE_WOOD[3]! : PALE_WOOD[4]!));
+  for (const [mx, my] of [
+    [cx - 4, gy - 12],
+    [cx + 3, gy - 11],
+  ] as const) {
+    c.rect(mx, my - 3, 3, 3, "#c89a4a");
+    c.px(mx + 2, my - 3, "#f0c870");
+    c.hline(mx, mx + 2, my - 4, "#fff6e0");
+    c.px(mx + 3, my - 2, "#8a6a3a");
+  }
+}
+
+/** A two-wheeled handcart heaped with pumpkins. */
+export function handcart(c: Canvas, x: number, gy: number) {
+  // Handles.
+  c.line(x - 10, gy - 6, x, gy - 9, WOOD[3]!);
+  c.line(x - 10, gy - 5, x, gy - 8, WOOD[1]!);
+  // Load: pumpkins piled in the bed.
+  const pumpkin = ["#5a2410", "#a4501a", "#d8742a", "#f49a44", "#ffc47a"];
+  for (const [px, py, r] of [
+    [x + 6, gy - 16, 4],
+    [x + 14, gy - 16, 4.5],
+    [x + 22, gy - 15, 4],
+    [x + 10, gy - 20, 4],
+    [x + 18, gy - 20, 3.5],
+  ] as const) {
+    c.ellipse(px, py, r, r * 0.8, (_, __, u, v) => {
+      const rib = Math.abs(((u + 1) * 2.5) % 1 - 0.5) < 0.12;
+      const k = Math.max(0, Math.min(4, Math.round(2.2 + u * 1.4 - v * 1.2 - (rib ? 1 : 0))));
+      return pumpkin[k]!;
     });
+    c.px(px, py - r * 0.8 - 1, "#4a7a2a");
   }
-}
-
-export function scroll(c: Canvas, x: number, y: number, len: number, seal: Color) {
-  fill(c, x, y - 4, len, 4, (i, j) => ramp(RAMPS.cloth.cream, clamp(0.95 - (j - (y - 4)) * 0.2), i, j));
-  c.px(x, y - 3, "#8a7a5a");
-  c.px(x + len - 1, y - 3, "#8a7a5a");
-  fill(c, x + Math.floor(len / 2) - 1, y - 4, 2, 4, () => seal);
-}
-
-export function candle(c: Canvas, x: number, y: number, h: number, glows: Glow[]) {
-  fill(c, x, y - h, 3, h, (i) => (i === x ? "#fff6e0" : i === x + 1 ? "#f0e2c0" : "#c8b890"));
-  c.px(x + 1, y - h - 1, "#2a1a10");
-  c.px(x + 1, y - h - 2, "#ffe070");
-  c.px(x + 1, y - h - 3, "#fff4c2");
-  glows.push((g) => {
-    g.light(x + 1, y - h - 2, 14, "#ffd27a", 0.6);
-    g.px(x + 1, y - h - 2, "#ffe070");
-    g.px(x + 1, y - h - 3, "#ffffff");
-    g.px(x + 1, y - h - 4, "#ffe070");
-  });
-}
-
-export function crystalBall(c: Canvas, x: number, y: number, r: number, glows: Glow[]) {
-  fill(c, x - r, y - 3, 2 * r + 1, 3, (i) => ramp(RAMPS.gold, 0.8 - ((i - x + r) / (2 * r)) * 0.6, i, y));
-  const cy = y - 3 - r;
-  c.ellipse(x, cy, r, r, (i, j, u, v) => {
-    const swirl = Math.sin(u * 5 + v * 7 + Math.hypot(u, v) * 6);
-    if (u < -0.35 && v < -0.35 && u > -0.7) return "#ffffff";
-    const t = 0.7 - (u + v) * 0.3 + swirl * 0.12;
-    return ramp(["#1a3a6a", "#2a6aa8", "#4aa8d8", "#8ae0ff", "#d8faff"], clamp(t), i, j);
-  });
-  glows.push((g) => g.light(x, cy, r * 3.2, "#7ad8ff", 0.7));
-}
-
-export function barrel(c: Canvas, x: number, y: number, w: number, h: number) {
-  for (let j = 0; j < h; j++) {
-    const bulge = Math.round(Math.sin((j / (h - 1)) * Math.PI) * 2);
-    for (let i = -bulge; i < w + bulge; i++) {
-      const u = (i + bulge) / (w + 2 * bulge - 1);
-      const stave = (i + 20) % 4 === 0;
-      const t = clamp(0.95 - Math.abs(u - 0.3) * 1.3 + (smooth(i * 3, j, 4, 11) - 0.5) * 0.2);
-      c.px(x + i, y + j, stave ? RAMPS.wood[0]! : ramp(RAMPS.wood, t, x + i, y + j));
+  // Bed: a plank box, top rim lit.
+  for (let y = gy - 13; y <= gy - 5; y++) {
+    for (let i = 0; i < 28; i++) {
+      let k = (y - (gy - 13)) % 3 === 2 ? 1 : 3;
+      if (y === gy - 13) k = 5;
+      if (i === 27) k = 4;
+      c.px(x + i, y, PALE_WOOD[k]!);
     }
   }
-  for (const jj of [Math.round(h * 0.18), Math.round(h * 0.82)]) {
-    const bulge = Math.round(Math.sin((jj / (h - 1)) * Math.PI) * 2);
-    for (let i = -bulge; i < w + bulge; i++) {
-      const u = (i + bulge) / (w + 2 * bulge - 1);
-      c.px(x + i, y + jj, ramp(RAMPS.iron, clamp(1 - Math.abs(u - 0.3) * 1.5), x + i, y + jj));
-      c.px(x + i, y + jj + 1, RAMPS.iron[1]!);
-    }
-  }
-  c.ellipse(x + (w - 1) / 2, y, w / 2, 2, (i, j, u) => (Math.abs(u) > 0.85 ? RAMPS.wood[0]! : ramp(RAMPS.wood, 0.55 - u * 0.2, i, j)));
-}
-
-export function crate(c: Canvas, x: number, y: number, s: number) {
-  planks(c, x, y, s, s, RAMPS.wood, { size: 5, seed: x * 7 + y });
-  fill(c, x, y, s, s, (i, j) => {
-    const edge = i - x < 2 || x + s - 1 - i < 2 || j - y < 2 || y + s - 1 - j < 2;
-    const diag = Math.abs(i - x - (j - y)) < 1.5;
-    if (edge || diag) return ramp(RAMPS.wood, i - x < 2 || j - y < 2 ? 0.95 : 0.35, i, j);
-    return null;
-  });
-  for (const [px, py] of [
-    [x + 1, y + 1],
-    [x + s - 2, y + 1],
-    [x + 1, y + s - 2],
-    [x + s - 2, y + s - 2],
-  ]) {
-    c.px(px!, py!, RAMPS.iron[2]!);
-  }
-}
-
-export function sack(c: Canvas, x: number, y: number, w: number, h: number, seed: number) {
-  const burlap = ["#5a4428", "#7a5e3a", "#9a7c50", "#b89a6a", "#d0b684"];
-  for (let j = 0; j < h; j++) {
-    const t = j / (h - 1);
-    const half = (w / 2) * (t < 0.25 ? 0.55 + t * 1.6 : 1 - (t - 0.25) * 0.15);
-    for (let i = Math.floor(-half); i <= half; i++) {
-      const u = i / half;
-      const weave = (x + i + (y + j)) % 2 === 0 ? 0.05 : -0.05;
-      const tone = 0.75 - u * 0.35 - t * 0.2 + weave + (smooth(x + i, y + j, 3, seed) - 0.5) * 0.3;
-      c.px(x + i, y + j, ramp(burlap, clamp(tone), x + i, y + j));
-    }
-  }
-  c.hline(x - 2, x + 2, y + Math.round(h * 0.2), "#3a2a18");
-  c.px(x, y - 1, "#9a7c50");
-  c.px(x - 1, y - 2, "#b89a6a");
-  c.px(x + 1, y - 2, "#9a7c50");
-}
-
-export function pumpkin(c: Canvas, x: number, y: number, r: number) {
-  c.ellipse(x, y, r, r * 0.75, (i, j, u, v) => {
-    const rib = Math.abs(Math.sin(u * 4.5)) < 0.25;
-    const t = 0.8 - u * 0.3 - v * 0.35 - (rib ? 0.25 : 0);
-    return ramp(["#6a2808", "#a04810", "#d06a18", "#f08c28", "#ffb050"], clamp(t), i, j);
-  });
-  c.rect(x, y - Math.round(r * 0.75) - 2, 2, 3, "#3a5a1e");
-}
-
-export function apples(c: Canvas, x: number, y: number, n: number) {
-  for (let k = 0; k < n; k++) {
-    const row = k < 4 ? 0 : 1;
-    const ax = x + (k % 4) * 5 + row * 2;
-    const ay = y - row * 4;
-    c.ellipse(ax + 2, ay - 2, 2, 2, (i, j, u, v) => ramp(["#5a0a0a", "#9a1a14", "#d0301e", "#ff6a4a"], clamp(0.7 - u * 0.3 - v * 0.4), i, j));
-    c.px(ax + 1, ay - 3, "#ffc8a8");
-    c.px(ax + 2, ay - 5, "#3a2a10");
-  }
-}
-
-export function herbs(c: Canvas, x: number, y: number, len: number, seed: number) {
-  c.vline(x, y, y + 2, "#5a3a20");
-  for (let j = 2; j < len; j++) {
-    const spread = Math.min(3, Math.floor(j / 2));
-    for (let i = -spread; i <= spread; i++) {
-      if (noise(x + i, y + j, seed) < 0.35) continue;
-      c.px(x + i, y + j, ramp(RAMPS.leaf, 0.3 + noise(i, j, seed + 1) * 0.6 - j / len * 0.3, x + i, y + j));
-    }
-  }
-  c.hline(x - 1, x + 1, y + 2, "#c8a060");
-}
-
-export function garlic(c: Canvas, x: number, y: number, n: number) {
-  c.vline(x, y, y + n * 3, "#8a6a3a");
-  for (let k = 0; k < n; k++) {
-    const gy = y + 2 + k * 3;
-    const gx = x + (k % 2 ? 1 : -2);
-    c.ellipse(gx + 1, gy + 1, 1.6, 1.4, (i, j, u, v) => (u + v > 0.4 ? "#c8bca0" : "#f4eedc"));
-  }
-}
-
-/** A detailed iron lantern hanging from `y`; lights up at night. */
-export function lantern(c: Canvas, x: number, y: number, glows: Glow[], size = 1) {
-  const w = 5 + size * 2;
-  const h = 7 + size * 2;
-  c.vline(x, y, y + 1, RAMPS.iron[1]!);
-  fill(c, x - Math.floor(w / 2) - 1, y + 2, w + 2, 2, (i) => ramp(RAMPS.iron, i === x - Math.floor(w / 2) - 1 ? 0.8 : 0.4, i, y));
-  fill(c, x - Math.floor(w / 2), y + 4, w, h, (i, j) => {
-    const bar = i === x - Math.floor(w / 2) || i === x + Math.floor(w / 2) || i === x || j === y + 4 + Math.floor(h / 2);
-    return bar ? RAMPS.iron[1]! : ramp(["#6a5a3a", "#9a8a5a", "#c8b880"], 0.5 + (i < x ? 0.3 : -0.2), i, j);
-  });
-  fill(c, x - Math.floor(w / 2) - 1, y + 4 + h, w + 2, 2, () => RAMPS.iron[1]!);
-  glows.push((g) => {
-    fill(g, x - Math.floor(w / 2), y + 4, w, h, (i, j) => {
-      const bar = i === x - Math.floor(w / 2) || i === x + Math.floor(w / 2) || i === x || j === y + 4 + Math.floor(h / 2);
-      return bar ? "#2a1a10" : (i + j) % 3 === 0 ? "#fff4c2" : "#ffd27a";
-    });
-    g.light(x, y + 4 + h / 2, 20 + size * 10, "#ffcf6a", 0.8);
+  // The wheel facing us: rim, spokes, hub.
+  const wx = x + 18;
+  const wy = gy - 6;
+  c.ellipse(wx, wy, 6, 6, (_, __, u, v) => {
+    const d = u * u + v * v;
+    if (d > 0.62) return u + v < 0 ? WOOD[4]! : WOOD[1]!;
+    const a = Math.atan2(v, u);
+    const spoke = Math.abs(((a / Math.PI) * 3 + 6) % 1 - 0.5) > 0.38;
+    if (d < 0.08) return IRON[3]!;
+    return spoke ? WOOD[3]! : null;
   });
 }
 
-/** The wizard merchant, drawn from shapes: hat, face, beard, robe, sleeves and a staff. `x` is the centre, `y` the waist. */
-export function wizard(c: Canvas, x: number, y: number, glows: Glow[]) {
-  const robe = RAMPS.cloth.purple;
-  const hat = RAMPS.cloth.blue;
-  // Robe and shoulders.
-  for (let j = 0; j < 22; j++) {
-    const half = 9 + Math.min(4, j / 3);
-    for (let i = -Math.round(half); i <= Math.round(half); i++) {
-      const u = i / half;
-      const fold = Math.sin(i * 0.9 + j * 0.15) * 0.12;
-      c.px(x + i, y - 22 + j, ramp(robe, clamp(0.7 - u * 0.45 + fold - j * 0.01), x + i, y - 22 + j));
-    }
+/** A planter box of flowers. */
+export function planter(c: Canvas, x: number, gy: number, w: number, seed: number, blooms: readonly Color[] = ["#e24a5a", "#f4a0b0", "#ffd65a", "#ffffff"]) {
+  const r = rng(seed);
+  for (let y = gy - 7; y <= gy; y++) for (let i = 0; i < w; i++) c.px(x + i, y, WOOD[y === gy - 7 ? 5 : i === w - 1 ? 4 : (y - gy) % 3 === 0 ? 2 : 3]!);
+  for (let i = 0; i < w; i++) c.px(x + i, gy - 8, "#4a3024");
+  for (let k = 0; k < w * 1.4; k++) {
+    const px = x + r.int(0, w - 1);
+    const py = gy - 9 - r.int(0, 5);
+    c.px(px, py, r.pick(["#3e6a2c", "#5e9434", "#86ba44"]));
+    if (r.chance(0.45)) c.px(px + r.int(-1, 1), py - 1, r.pick(blooms));
   }
-  // Gold trim and stars on the robe.
-  for (let j = 0; j < 22; j++) c.px(x, y - 22 + j, j % 3 === 0 ? RAMPS.gold[4]! : RAMPS.gold[3]!);
-  for (const [sx, sy] of [
-    [-6, -14],
-    [5, -8],
-    [-4, -4],
-    [7, -17],
-  ]) {
-    c.px(x + sx!, y + sy!, RAMPS.gold[4]!);
+}
+
+/** A brass spyglass on a tripod, aimed at the sea. */
+export function spyglass(c: Canvas, x: number, gy: number) {
+  c.line(x, gy - 12, x - 4, gy, WOOD[2]!);
+  c.line(x, gy - 12, x + 4, gy, WOOD[3]!);
+  c.line(x, gy - 12, x + 1, gy + 1, WOOD[1]!);
+  for (let s = 0; s < 12; s++) {
+    const px = x - 5 + s;
+    const py = gy - 13 - Math.round(s * 0.45);
+    c.px(px, py, s > 8 ? GOLD[4]! : GOLD[3]!);
+    c.px(px, py + 1, GOLD[1]!);
   }
-  // Sleeves and hands.
-  for (const side of [-1, 1]) {
-    for (let j = 0; j < 9; j++) {
-      for (let i = 0; i < 6; i++) {
-        const px = x + side * (8 + i);
-        c.px(px, y - 17 + j + Math.floor(i / 2), ramp(robe, clamp(0.55 - side * 0.2 - j * 0.02), px, y - 17 + j));
+  c.px(x + 7, gy - 19, "#bfe6ff");
+}
+
+/** A wooden signpost with two arrow boards. */
+export function signpost(c: Canvas, x: number, gy: number) {
+  for (let y = gy - 30; y <= gy; y++) {
+    c.px(x, y, WOOD[2]!);
+    c.px(x + 1, y, WOOD[4]!);
+  }
+  for (const [y, dir, len] of [
+    [gy - 27, 1, 16],
+    [gy - 20, -1, 14],
+  ] as const) {
+    for (let j = 0; j < 5; j++) {
+      for (let i = 0; i < len; i++) {
+        const tip = i >= len - 3 ? i - (len - 3) : 0;
+        if (j < tip || j > 4 - tip) continue;
+        const px = dir > 0 ? x + 2 + i : x - 1 - i;
+        c.px(px, y + j, j === 0 ? PALE_WOOD[5]! : j === 4 ? PALE_WOOD[2]! : PALE_WOOD[4]!);
       }
     }
-    c.ellipse(x + side * 13, y - 7, 2, 2, (i, j, u, v) => ramp(RAMPS.skin, clamp(0.75 - u * 0.2 - v * 0.3), i, j));
+    for (let i = 3; i < len - 4; i += 2) c.px(dir > 0 ? x + 2 + i : x - 1 - i, y + 2, WOOD[1]!);
   }
-  // Staff in the right hand, with a glowing gem.
-  for (let j = -42; j < 10; j++) c.px(x + 14, y + j, ramp(RAMPS.wood, j % 7 === 0 ? 0.3 : 0.65, x + 14, y + j));
-  c.px(x + 15, y - 30, RAMPS.wood[2]!);
-  c.ellipse(x + 14, y - 45, 2.5, 3, (i, j, u, v) => (u < -0.2 && v < -0.2 ? "#ffffff" : u + v > 0.5 ? "#2a8a6a" : "#5af0c0"));
-  glows.push((g) => g.light(x + 14, y - 45, 18, "#5af0c0", 0.8));
-  // Face.
-  const fy = y - 30;
-  c.ellipse(x, fy, 6, 6, (i, j, u, v) => ramp(RAMPS.skin, clamp(0.75 - u * 0.25 - v * 0.2), i, j));
-  c.px(x - 3, fy - 1, OUTLINE);
-  c.px(x + 2, fy - 1, OUTLINE);
-  c.px(x - 3, fy - 2, "#ffffff");
-  c.hline(x - 4, x - 2, fy - 3, "#e8e8f0");
-  c.hline(x + 1, x + 3, fy - 3, "#e8e8f0");
-  c.ellipse(x, fy + 1, 1.5, 1.5, (i, j, u) => ramp(RAMPS.skin, u < 0 ? 0.6 : 0.35, i, j));
-  c.px(x - 5, fy + 1, "#e88a7a");
-  c.px(x + 4, fy + 1, "#e88a7a");
-  // Long white beard with strands.
-  for (let j = 0; j < 20; j++) {
-    const half = Math.max(1, 6 - j * 0.28 + Math.sin(j * 0.6) * 0.5);
-    for (let i = -Math.round(half); i <= Math.round(half); i++) {
-      const strand = (i + 20) % 3 === 0;
-      const t = 0.85 - (i / half) * 0.3 - j * 0.015 - (strand ? 0.2 : 0);
-      c.px(x + i, fy + 3 + j, ramp(["#8a8a9a", "#b8b8c8", "#dcdce8", "#f6f6fc", "#ffffff"], clamp(t), x + i, fy + 3 + j));
+}
+
+// ---------------------------------------------------------------- critters
+
+/** A pigeon pecking at the ground; `dir` 1 faces right. */
+export function pigeon(c: Canvas, x: number, gy: number, dir = 1, peck = false) {
+  const body = ["#4a4a5e", "#7a7a90", "#a8a8bc", "#d0d0de"];
+  const P = peck ? ["..ooo.", ".o2230", "o21110", ".o1110", "..o.o."] : ["...oo.", "..o33o", ".o221o", "o2111o", ".o1110", "..o.o."];
+  P.forEach((row, j) =>
+    [...row].forEach((k, i) => {
+      if (k === ".") return;
+      const color = k === "o" ? "#2a2436" : k === "0" ? "#6a8a7a" : body[Number(k)]!;
+      c.px(dir > 0 ? x + i : x + 5 - i, gy - P.length + j + 1, color);
+    }),
+  );
+  c.px(dir > 0 ? x + 5 : x, gy - P.length + 2 + (peck ? 1 : 0), "#e89a3a"); // beak
+}
+
+/** A seagull perched (on a railing) or gliding. */
+export function gull(c: Canvas, x: number, y: number, flying: boolean) {
+  if (flying) {
+    const G = ["o.....o", ".ow.wo.", "..owo.."];
+    G.forEach((row, j) => [...row].forEach((k, i) => k !== "." && c.px(x + i - 3, y + j, k === "o" ? "#5a5a6a" : "#ffffff")));
+    return;
+  }
+  const G = ["..oo.", ".owwy", "owwww", ".ogwo", "..o.."];
+  G.forEach((row, j) => [...row].forEach((k, i) => k !== "." && c.px(x + i - 2, y + j - 4, k === "o" ? "#3a3444" : k === "y" ? "#f0b030" : k === "g" ? "#a8acc0" : "#ffffff")));
+}
+
+/** A cat sitting upright with its tail curled round. */
+export function cat(c: Canvas, x: number, gy: number, coat: readonly [Color, Color, Color] = ["#5a3018", "#c8702a", "#f0a050"]) {
+  const C = ["o...o.", "oo.oo.", "o1s1o.", "o2222o", ".o221o", ".o2221o", "o22221o", "o22211oo", ".oooooo1o", "........o"];
+  C.forEach((row, j) =>
+    [...row].forEach((k, i) => {
+      if (k === ".") return;
+      const color = k === "o" ? "#2a1a1a" : k === "s" ? "#f4d060" : coat[Number(k)]!;
+      c.px(x + i - 3, gy - C.length + j + 1, color);
+    }),
+  );
+  c.px(x - 2, gy - 7, "#1a1a2a");
+  c.px(x, gy - 7, "#1a1a2a");
+}
+
+/** A dog lying down, dozing. */
+export function dog(c: Canvas, x: number, gy: number) {
+  const coat = ["#3a2418", "#7a5030", "#a87444", "#d0a06a"];
+  const D = ["..oo.........", ".o32o........", "o3322ooooooo.", "o2d22222223o.", ".o21222222233o", "..oo111111oo.o", "....oo..oo...."];
+  D.forEach((row, j) =>
+    [...row].forEach((k, i) => {
+      if (k === ".") return;
+      const color = k === "o" ? "#24181a" : k === "d" ? "#1a1216" : coat[Number(k)]!;
+      c.px(x + i - 6, gy - D.length + j + 1, color);
+    }),
+  );
+}
+
+// ---------------------------------------------------------------- overhead
+
+/**
+ * A string of paper lanterns sagging between two points. Returns each lantern's centre, so the night pass can
+ * light them.
+ */
+export function lanternString(c: Canvas, x0: number, y0: number, x1: number, y1: number, sag: number, seed: number, night = false) {
+  const r = rng(seed);
+  const colors: Ramp[] = [
+    ["#6a1a22", "#b83e3e", "#e8745e"],
+    ["#1e5c5c", "#3e9c90", "#8ad6c4"],
+    ["#8a7a66", "#e4d6ba", "#fffaf0"],
+    ["#a86c1e", "#f0bc4a", "#fce8a0"],
+  ];
+  const at = (t: number): [number, number] => [x0 + (x1 - x0) * t, y0 + (y1 - y0) * t + Math.sin(t * Math.PI) * sag];
+  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0));
+  for (let s = 0; s <= steps; s++) {
+    const [x, y] = at(s / steps);
+    c.px(Math.round(x), Math.round(y), "#3a2a2a");
+  }
+  const lamps: { x: number; y: number }[] = [];
+  const n = Math.max(2, Math.floor(steps / 9));
+  for (let k = 1; k < n; k++) {
+    const [lx, ly] = at(k / n);
+    const x = Math.round(lx);
+    const y = Math.round(ly) + 1;
+    const [d, m, l] = r.pick(colors);
+    const lit = night ? ["#c86a2a", "#ffb44a", "#fff0b0"] : [d!, m!, l!];
+    c.px(x, y, "#2a2030");
+    for (let j = 1; j <= 4; j++) {
+      c.px(x - 1, y + j, j === 1 || j === 4 ? lit[0]! : lit[1]!);
+      c.px(x, y + j, j === 2 ? lit[2]! : lit[1]!);
+      c.px(x + 1, y + j, lit[0]!);
+    }
+    c.px(x, y + 5, "#2a2030");
+    lamps.push({ x, y: y + 2 });
+  }
+  return lamps;
+}
+
+// ---------------------------------------------------------------- the harbour
+
+/** A rowing boat on the water, seen from above: a pointed hull of planks, thwarts, oars shipped inside. */
+export function rowboat(c: Canvas, cx: number, cy: number, len: number, beam: number) {
+  const hull = ["#2a1618", "#5a3024", "#7e4630", "#a0603c", "#c07e50", "#dca070"];
+  const halfL = len / 2;
+  const halfB = beam / 2;
+  const inside = (x: number, y: number, shrink = 0) => {
+    const u = (x + 0.5 - cx) / (halfL - shrink);
+    const v = (y + 0.5 - cy) / (halfB - shrink * 0.6);
+    return Math.abs(v) <= Math.sqrt(Math.max(0, 1 - u ** 4)) * (1 - Math.abs(u) ** 6 * 0.3);
+  };
+  // Wake and the boat's dark reflection.
+  for (let x = Math.floor(cx - halfL - 3); x <= cx + halfL + 3; x++) {
+    for (let y = Math.floor(cy + halfB - 1); y <= cy + halfB + 3; y++) {
+      const base = c.get(x, y);
+      if (base && !inside(x, y)) c.px(x, y, mix(base, "#0a2030", 0.35));
     }
   }
-  // Mustache.
-  fill(c, x - 4, fy + 2, 9, 2, (i) => ramp(["#b8b8c8", "#f6f6fc", "#ffffff"], i < x ? 0.9 : 0.5, i, fy));
-  // Hat: wide brim and a tall, bent cone with stars and a moon.
-  c.ellipse(x, fy - 6, 12, 2.5, (i, j, u, v) => ramp(hat, clamp(0.6 - u * 0.3 - v * 0.3), i, j));
-  for (let j = 0; j < 26; j++) {
-    const t = j / 25;
-    const half = 7 * (1 - t) + 0.5;
-    const lean = Math.round(t * t * 7);
-    for (let i = -Math.round(half); i <= Math.round(half); i++) {
-      const u = i / Math.max(1, half);
-      const px = x + i + lean;
-      const py = fy - 8 - j;
-      c.px(px, py, ramp(hat, clamp(0.72 - u * 0.4 + (noise(px, py, 3) - 0.5) * 0.1), px, py));
+  for (let y = Math.floor(cy - halfB - 1); y <= cy + halfB + 1; y++) {
+    for (let x = Math.floor(cx - halfL - 1); x <= cx + halfL + 1; x++) {
+      if (!inside(x, y)) continue;
+      const rim = !inside(x, y, 1.6);
+      const u = (x + 0.5 - cx) / halfL;
+      const v = (y + 0.5 - cy) / halfB;
+      let color: Color;
+      if (rim) color = v < 0 ? hull[5]! : v > 0.4 ? hull[2]! : hull[4]!; // gunwale, lit along the far side
+      else {
+        const plank = Math.floor((v + 1) * 3.2) % 2 === 0;
+        color = hull[plank ? 3 : 2]!;
+        if (Math.abs(u - 0.3) < 0.05 || Math.abs(u + 0.25) < 0.05) color = PALE_WOOD[4]!; // thwarts
+      }
+      c.px(x, y, color);
     }
   }
-  c.hline(x - 7, x + 7, fy - 9, RAMPS.gold[3]!);
-  c.hline(x - 7, x + 7, fy - 8, RAMPS.gold[2]!);
-  for (const [sx, sy] of [
-    [-3, -14],
-    [2, -20],
-    [0, -26],
-    [-1, -11],
-  ]) {
-    const px = x + sx! + Math.round(((-sy! - 8) / 25) ** 2 * 7);
-    c.px(px, fy + sy!, RAMPS.gold[4]!);
-    c.px(px - 1, fy + sy!, RAMPS.gold[3]!);
-    c.px(px + 1, fy + sy!, RAMPS.gold[3]!);
-    c.px(px, fy + sy! - 1, RAMPS.gold[3]!);
-    c.px(px, fy + sy! + 1, RAMPS.gold[3]!);
+  // Oars laid along the boat.
+  c.line(cx - halfL * 0.6, cy - 1, cx + halfL * 0.5, cy - 2, PALE_WOOD[5]!);
+  c.line(cx - halfL * 0.55, cy + 1, cx + halfL * 0.55, cy, PALE_WOOD[3]!);
+  // A coil of rope in the bow.
+  c.ellipse(cx + halfL * 0.62, cy, 2, 1.5, (_, __, u, v) => (u * u + v * v < 0.3 ? hull[1]! : "#c8a878"));
+}
+
+/** A wooden jetty seen from above: deck planks on posts standing in the water. */
+export function jetty(c: Canvas, x: number, y: number, w: number, d: number) {
+  // Posts under the deck front.
+  for (let px = x + 2; px < x + w; px += 12) {
+    for (let j = 0; j < 6; j++) {
+      c.px(px, y + d + j, WOOD[1]!);
+      c.px(px + 1, y + d + j, WOOD[3]!);
+      c.px(px + 2, y + d + j, WOOD[2]!);
+    }
+    c.hline(px - 1, px + 3, y + d + 6, "#e6f4ee");
+  }
+  for (let j = 0; j < d; j++) {
+    for (let i = 0; i < w; i++) {
+      const board = Math.floor(i / 5);
+      const seam = i % 5 === 4;
+      let k = seam ? 1 : noise(board, 0, 7) > 0.5 ? 4 : 3;
+      if (j === 0) k = 5;
+      c.px(x + i, y + j, PALE_WOOD[k]!);
+    }
+  }
+  for (let i = 0; i < w; i++) {
+    c.px(x + i, y + d, WOOD[2]!);
+    c.px(x + i, y + d + 1, WOOD[1]!);
   }
 }
-
-export function cat(c: Canvas, x: number, y: number, glows: Glow[]) {
-  const fur = ["#0e0a14", "#1a1424", "#2a2236", "#3e3450"];
-  // Body, sitting.
-  c.ellipse(x + 5, y - 5, 5, 5, (i, j, u, v) => ramp(fur, clamp(0.6 - u * 0.3 - v * 0.3), i, j));
-  // Head and ears.
-  c.ellipse(x + 3, y - 12, 3.5, 3, (i, j, u, v) => ramp(fur, clamp(0.65 - u * 0.3 - v * 0.2), i, j));
-  for (const ex of [0, 5]) {
-    c.px(x + ex, y - 15, fur[2]!);
-    c.px(x + ex, y - 16, fur[1]!);
-    c.px(x + ex + 1, y - 15, fur[1]!);
-  }
-  c.px(x + 2, y - 12, "#e8e040");
-  c.px(x + 5, y - 12, "#e8e040");
-  glows.push((g) => {
-    g.px(x + 2, y - 12, "#ffff80");
-    g.px(x + 5, y - 12, "#ffff80");
-  });
-  // Tail curling up.
-  for (let k = 0; k < 9; k++) c.px(x + 10 + Math.round(Math.sin(k / 3) * 2), y - 1 - k, fur[k % 2 ? 1 : 2]!);
-}
-
-export function pigeon(c: Canvas, x: number, y: number) {
-  const g = ["#3a3a4a", "#5a5a6e", "#7e7e94", "#a4a4b8"];
-  c.ellipse(x + 3, y - 3, 3.5, 2.5, (i, j, u, v) => ramp(g, clamp(0.6 - u * 0.2 - v * 0.4), i, j));
-  c.ellipse(x + 6, y - 6, 1.8, 1.8, (i, j, u, v) => (v > 0.3 ? "#4a8a7a" : ramp(g, 0.7 - u * 0.2, i, j)));
-  c.px(x + 7, y - 6, OUTLINE);
-  c.px(x + 8, y - 6, "#c8a060");
-  c.px(x, y - 3, g[0]!);
-  c.px(x - 1, y - 2, g[0]!);
-  c.px(x + 3, y, "#c85a4a");
-  c.px(x + 4, y, "#c85a4a");
-}
-
-/** Hanging shop sign on an iron bracket, with a tiny icon. */
-export function shopSign(c: Canvas, x: number, y: number, icon: "mug" | "key" | "boot" | "bread") {
-  c.hline(x, x + 14, y, RAMPS.iron[1]!);
-  c.px(x + 13, y + 1, RAMPS.iron[1]!);
-  c.px(x + 12, y + 2, RAMPS.iron[1]!);
-  c.vline(x + 3, y + 1, y + 2, RAMPS.iron[2]!);
-  c.vline(x + 11, y + 1, y + 2, RAMPS.iron[2]!);
-  planks(c, x + 1, y + 3, 13, 10, RAMPS.wood, { size: 5, seed: x });
-  fill(c, x + 1, y + 3, 13, 10, (i, j) => (i === x + 1 || j === y + 3 ? RAMPS.wood[4]! : i === x + 13 || j === y + 12 ? RAMPS.wood[0]! : null));
-  const gold = RAMPS.gold[3]!;
-  const cx = x + 7;
-  const cy = y + 8;
-  if (icon === "mug") {
-    fill(c, cx - 2, cy - 2, 4, 5, () => gold);
-    c.vline(cx + 2, cy - 1, cy + 1, gold);
-    c.hline(cx - 2, cx + 1, cy - 3, "#ffffff");
-  } else if (icon === "key") {
-    c.ellipse(cx - 2, cy, 1.5, 1.5, gold);
-    c.hline(cx, cx + 3, cy, gold);
-    c.px(cx + 3, cy + 1, gold);
-    c.px(cx + 1, cy + 1, gold);
-  } else if (icon === "boot") {
-    fill(c, cx - 1, cy - 3, 3, 5, () => gold);
-    fill(c, cx - 1, cy + 1, 5, 2, () => gold);
-  } else {
-    c.ellipse(cx, cy, 3.5, 2, gold);
-    c.px(cx - 1, cy - 1, RAMPS.wood[1]!);
-    c.px(cx + 1, cy - 1, RAMPS.wood[1]!);
-  }
-}
-
-/** A puddle reflecting the sky. */
-export function puddle(c: Canvas, x: number, y: number, w: number, h: number, sky: readonly Color[]) {
-  c.ellipse(x, y, w, h, (i, j, u, v) => {
-    const ripple = Math.sin(i * 0.8 + j * 2) > 0.7;
-    return ramp(sky, clamp(0.5 + v * 0.4 + (ripple ? 0.3 : 0)), i, j);
-  });
-  shadow(c, x - w, y - h - 1, 2 * w, 2, () => 0.5, "#1a1430", 0.3);
-}
-
-export const tint = (color: Color, amount: number) => mix(color, "#1a1430", amount);

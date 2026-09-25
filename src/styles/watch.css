@@ -1,0 +1,167 @@
+/* The watch, ledger, request, charters and 404 pages. Arranges primitives from components.css; defines no colours, sizes or fonts of its own. */
+
+@layer components {
+  /* The watchmen, one card each. */
+  .watchmen-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+    gap: var(--space-6);
+  }
+
+  /* The cleared-skills table flows with the page: only its header sticks, and only .table-wrap's horizontal
+     overflow scrolls, so there is never a scrollbox nested inside the page's own scroll. */
+  .ledger-table th {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+  }
+  /* The crafter repo sits on its own line under the skill id, not squeezed onto the same inline run. */
+  .ledger-table td .row-meta {
+    display: block;
+  }
+  /* Skill names read like the titles of every other list. */
+  .ledger-table td:first-child > a {
+    font-family: var(--font-display);
+  }
+  .ledger-label {
+    display: none;
+  }
+  /* On phones each skill is a small card instead of a six-column row: its name and crafter on top, then version,
+     charter, date, the watchmen's marks and any notes as one wrapping line. */
+  @media (max-width: 639px) {
+    .ledger-table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .ledger-table,
+    .ledger-table tbody {
+      display: block;
+    }
+    .ledger-table tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-1) var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      border-top: 1px solid var(--panel-divider);
+    }
+    .ledger-table tr:first-child {
+      border-top: none;
+    }
+    .ledger-table tr[hidden] {
+      display: none;
+    }
+    .ledger-table td {
+      padding: 0;
+      border: none;
+    }
+    .ledger-table td:first-child {
+      flex-basis: 100%;
+    }
+    .ledger-table tr[data-notes="0"] .ledger-notes {
+      display: none;
+    }
+    .ledger-label {
+      display: inline;
+    }
+  }
+
+  /* At the gate: one list per crafter repository, in the same rows as every other list of skills. */
+  .gate-repo {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .gate-repo a {
+    color: inherit;
+  }
+  .gate-row {
+    scroll-margin-top: var(--space-6);
+  }
+  .gate-row:target {
+    border-color: var(--accent);
+  }
+  /* Each rule that flagged the skill, then where it matched: file names upstream, wrapping on phones. */
+  .gate-findings {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .gate-findings .cluster {
+    font-size: var(--text-sm);
+  }
+  .gate-where {
+    color: var(--panel-muted);
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+  }
+  .gate-where a {
+    font-size: var(--text-xs);
+  }
+
+  /* Charters, one card per license per crafter. */
+  /* Charters: one flush panel per license, one line per crafter repository. */
+  .charter-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .charter-row {
+    display: grid;
+    grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-4);
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--text-sm);
+  }
+  .charter-row + .charter-row {
+    border-top: 1px solid var(--panel-divider);
+  }
+  .charter-repo {
+    overflow-wrap: anywhere;
+    font-family: var(--font-display);
+  }
+  .charter-skills {
+    color: var(--panel-faint);
+    line-height: var(--leading-snug);
+  }
+  .charter-skills a {
+    color: var(--panel-text);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .charter-skills a:hover {
+    color: var(--accent-strong);
+    text-decoration: underline;
+  }
+  .charter-skills a:target {
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .charter-row .charter-text {
+    grid-column: 1 / -1;
+    margin-block: var(--space-2);
+  }
+  @media (max-width: 639px) {
+    .charter-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .charter-skills {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
+  /* A license's full text, sunk and capped so one long charter doesn't dominate the page. */
+  .charter-text {
+    max-height: 24rem;
+    padding: var(--space-3) var(--space-4);
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+  }
+}

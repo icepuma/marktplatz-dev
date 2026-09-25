@@ -1,0 +1,10 @@
+{
+  "id": "wait-what",
+  "repo": "mattpocock/skills",
+  "path": "skills/productivity/wait-what",
+  "version": "v1.2.3",
+  "sha": "6acc160e4e0cd062dbbbd7a1b26ae92855edf07e",
+  "contentHash": "sha256-10376220098d64ec27a90631b898f87086ad7d9b3a014d90fd18c8cb0862bc2a",
+  "license": "MIT",
+  "promotedAt": "2026-09-25T16:00:11.036Z"
+}

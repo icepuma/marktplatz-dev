@@ -1,0 +1,88 @@
+/* Skill and guild pages. Arranges primitives from components.css; defines no colours, sizes or fonts of its own. */
+
+@layer components {
+  /* A skill's description can run long; keep the header tidy. */
+  .skill-lede {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+  }
+
+  /* The recipe (SKILL.md) can run very long: cap it with a fade until "Read all" is pressed. */
+  .skill-recipe-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    align-items: center;
+  }
+  /* The panel takes the column's width (never its code blocks' width); wide code scrolls inside it. */
+  .skill-recipe {
+    position: relative;
+    width: 100%;
+    max-width: none;
+    max-height: 32rem;
+    overflow: hidden;
+  }
+  .skill-recipe.is-expanded {
+    max-height: none;
+  }
+  .skill-recipe:not(.is-expanded)::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: var(--space-16);
+    background: linear-gradient(180deg, transparent, var(--panel-bottom));
+    pointer-events: none;
+  }
+
+  /* A dense list of files or versions, sunk in a flush panel. */
+  .skill-files {
+    display: flex;
+    flex-direction: column;
+  }
+  .skill-files li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    border-top: var(--line) solid var(--panel-divider);
+  }
+  .skill-files li:first-child {
+    border-top: none;
+  }
+  .skill-files li > a {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .skill-files li > :last-child {
+    margin-left: auto;
+  }
+
+  /* A hash that must wrap without overflowing its panel. */
+  .skill-hash {
+    overflow-wrap: anywhere;
+  }
+
+  /* Compact icon-and-link lists in the side column: guilds, kindred skills. */
+  .skill-links {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .skill-links li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .skill-links img {
+    flex: none;
+  }
+  .skill-links a {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}

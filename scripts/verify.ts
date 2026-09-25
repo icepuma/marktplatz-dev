@@ -3,7 +3,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { approvedDir, loadApprovedVersions, loadQuarantine, loadRoles } from "../src/lib/catalog";
+import { approvedDir, gateDir, loadApprovedVersions, loadHeldVersions, loadQuarantine, loadRoles } from "../src/lib/catalog";
 import { pluginManifests } from "../src/lib/emitters";
 import { contentHash } from "../src/lib/skill";
 
@@ -24,10 +24,20 @@ for (const [id, versions] of await loadApprovedVersions()) {
     if ((await contentHash(join(dir, "skills", id))) !== skill.contentHash) errors.push(`${where}: content hash mismatch`);
     if (!existsSync(join(dir, "LICENSE"))) errors.push(`${where}: LICENSE is missing`);
     if (!skill.scan.passed) errors.push(`${where}: scan did not pass`);
+    for (const s of skill.scan.scanners) if (!existsSync(join(dir, "scan", `${s.id}.json`))) errors.push(`${where}: raw ${s.id} report is missing`);
     for (const [file, expected] of Object.entries(pluginManifests(skill))) {
       const actual = await readFile(join(dir, file), "utf8").catch(() => "");
       if (actual !== `${JSON.stringify(expected, null, 2)}\n`) errors.push(`${where}: ${file} is missing or outdated`);
     }
+  }
+}
+
+for (const [id, versions] of await loadHeldVersions()) {
+  for (const skill of versions) {
+    const where = `gate/${id}/${skill.version}`;
+    if (skill.id !== id) errors.push(`${where}: provenance id is "${skill.id}"`);
+    if (skill.scan.passed) errors.push(`${where}: scan passed, so it belongs in approved/`);
+    for (const s of skill.scan.scanners) if (!existsSync(join(gateDir(id, skill.version), "scan", `${s.id}.json`))) errors.push(`${where}: raw ${s.id} report is missing`);
   }
 }
 

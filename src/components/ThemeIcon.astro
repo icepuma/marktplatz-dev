@@ -7,9 +7,9 @@ const cells = (grid: string[]) =>
   grid.flatMap((row, y) => [...row].map((ch, x) => ({ x, y, fill: colors[ch] })).filter((p) => p.fill));
 ---
 
-<svg class="pixel dark:hidden" width="24" height="24" viewBox="0 0 8 8" aria-hidden="true">
+<svg class="pixel day-only" width="24" height="24" viewBox="0 0 8 8" aria-hidden="true">
   {cells(SUN).map((p) => <rect x={p.x} y={p.y} width="1" height="1" fill={p.fill} />)}
 </svg>
-<svg class="pixel hidden dark:inline" width="24" height="24" viewBox="0 0 8 8" aria-hidden="true">
+<svg class="pixel night-only" width="24" height="24" viewBox="0 0 8 8" aria-hidden="true">
   {cells(MOON).map((p) => <rect x={p.x} y={p.y} width="1" height="1" fill={p.fill} />)}
 </svg>

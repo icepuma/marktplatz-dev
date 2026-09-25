@@ -70,3 +70,8 @@ export const Provenance = z.strictObject({
   promotedAt: z.iso.datetime(),
 });
 export type Provenance = z.infer<typeof Provenance>;
+
+// A skill held at the gate: checked, but not cleared. Only its provenance and scan are kept, never its files, so
+// the SKILL.md description is recorded here.
+export const Held = Provenance.extend({ description: z.string().trim().min(1).max(1024) });
+export type Held = z.infer<typeof Held>;

@@ -1,0 +1,58 @@
+---
+import Outline from "@/components/Outline.astro";
+import PageHead from "@/components/PageHead.astro";
+import Layout from "@/layouts/Layout.astro";
+import { author, licenseName } from "@/lib/browse";
+import { loadCatalog } from "@/lib/catalog";
+
+// Every guild: skills bundled by hand for a kind of work. Each row opens the guild's page.
+const catalog = await loadCatalog();
+const guilds = [...catalog.roles].sort((a, b) => a.name.localeCompare(b.name));
+const skillsOf = (skills: string[]) => catalog.skills.filter((s) => skills.includes(s.id));
+---
+
+<Layout title="Guilds" description="Skills bundled by hand for a kind of work." crumbs={[{ label: "Guilds" }]}>
+  <div class="with-outline">
+  <div class="stack stack-xl">
+    <PageHead title="Guilds">
+      <p class="lede">
+        Skills bundled by hand for a kind of work. Open a guild to see what it brings, then install all of it at once:
+        one plugin in Claude Code. To mix guilds and single skills, use <a href="/">the shop</a>.
+      </p>
+    </PageHead>
+
+    <section class="stack" id="guilds">
+      <h2 class="section-title">All guilds <span>{guilds.length}</span></h2>
+      <ul class="rows">
+        {
+          guilds.map((g) => {
+            const skills = skillsOf(g.skills);
+            const charters = [...new Set(skills.map((s) => licenseName(s.license)))].sort();
+            const crafters = [...new Set(skills.map((s) => author(s)))].sort();
+            return (
+              <li>
+                <a class="row" href={`/roles/${g.id}`}>
+                  <img src={`/art/guilds/${g.id}.png`} alt="" width="32" height="37" class="row-icon row-shield" />
+                  <span class="row-main">
+                    <span class="row-title">
+                      <span>{g.name}</span>
+                      <span class="row-meta">
+                        {skills.length} skill{skills.length === 1 ? "" : "s"} · {charters.join(", ")} · by {crafters.join(", ")}
+                      </span>
+                      {g.held.length > 0 && <span class="badge badge-danger">{g.held.length} at the gate</span>}
+                    </span>
+                    <span class="row-text">{g.description}</span>
+                    <span class="row-meta">Brings: {g.skills.join(", ")}</span>
+                  </span>
+                </a>
+              </li>
+            );
+          })
+        }
+      </ul>
+      <p class="fine">Want to mix guilds and single skills? <a href="/">Pick them in the shop</a>.</p>
+    </section>
+  </div>
+  <aside class="outline-side"><Outline /></aside>
+  </div>
+</Layout>

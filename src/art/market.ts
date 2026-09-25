@@ -1,759 +1,812 @@
-import { bayer, Canvas, type Color, hex, mix, rgb, rng } from "./canvas";
-import { bricks, clamp, cloud, cylinder, fill, foliage, noise, planks, RAMPS, ramp, shadow, shingles, smooth } from "./paint";
-import {
-  apples,
-  barrel,
-  books,
-  bottle,
-  candle,
-  cat,
-  crate,
-  crystalBall,
-  type Glow,
-  visibleGlow,
-  garlic,
-  herbs,
-  LIQUIDS,
-  lantern,
-  openBook,
-  pigeon,
-  puddle,
-  pumpkin,
-  sack,
-  scroll,
-  shopSign,
-  wizard,
-} from "./props";
-import { FONT } from "./sprites";
+import { Canvas, type Color, grade, hex, luminance, mix, multiply, outlineOf, rgb, rng, screen } from "./canvas";
+import { noise, smooth } from "./paint";
+import { cellEdge, cliffFace, GRASS, grass, surf, insideDistance, lawn, Mask, ringStones, SAND, sand, SEA, slabs, STONE, STONE_COOL, STONE_TERRA, stoneAt } from "./terrain";
+import { broadleaf, cypress, fern, flowerBed, flowers, hedge, ivy, shrub } from "./flora";
+import { type Figure, figure } from "./folk";
+import { APPLES, barrel, basket, bench, cat, crate, dog, fountain, fruitPile, gull, handcart, jetty, lampPost, lanternString, noticeBoard, ORANGES, pigeon, planter, pot, railing, rowboat, sack, signpost, spyglass, tavernTable } from "./props";
+import { arcana, books, bottles, CLOTH, jars, merchantX, merchantY, produce, stall, type StallSpec } from "./stalls";
+import { bakery, CHIMNEYS, guildHall, type Light, TOWN_GY, tavern } from "./town";
+import { cloud, island, openSea, sail, sky, sun } from "./vista";
 
-// The hero scene: a market square by day or by night.
-// The scene is painted once in daylight colors; the night version is color-graded to moonlight,
-// then every light source (windows, lanterns, candles, orbs) is drawn on top as a glow.
-
-export const MARKET_WIDTH = 640;
-export const MARKET_HEIGHT = 320;
+// The market square, painted like a Sea of Stars town: a steep top-down view where the ground fills the frame and
+// walls face the camera. Town houses line the back on the left; on the right the square ends at a railing over
+// the sea, with the sky, the sun and far islands beyond; in the front corner the ground drops away as a cliff
+// of stone columns to the harbour. Every object is its own outlined layer, sorted by the ground line it stands
+// on, and casts a shadow sheared from its own silhouette (the sun is up and to the right; shadows fall left).
 
 export type TimeOfDay = "day" | "night";
 
-/** Where the sun (day) or moon (night) sits; the site makes it clickable. */
-export const CELESTIAL = { x: 588, y: 44, r: 18 };
-
+export const MARKET_WIDTH = 640;
+export const MARKET_HEIGHT = 360;
 const W = MARKET_WIDTH;
 const H = MARKET_HEIGHT;
-const GROUND = 228;
 
-const SKY: Record<TimeOfDay, Color[]> = {
-  day: ["#2a5cc0", "#3a6cd0", "#4c80dc", "#6094e4", "#78aaec", "#94c0f2", "#b4d4f6", "#d4e8f8"],
-  night: ["#08051a", "#0e0826", "#160c34", "#221244", "#321a54", "#4a2262", "#6a2c6a"],
+/** Where the sun (by day) and the moon (by night) hang; the site makes it clickable. */
+export const CELESTIAL = { x: 552, y: 30, r: 16 } as const;
+
+const TOWN_END = 352; // the houses run from the left edge to here
+const RIM = 118; // the back edge of the square, over the sea
+const HORIZON = 62;
+const FOUNTAIN = { x: 332, y: 240 } as const;
+
+/** The cliff in the front right corner: screen y of its top edge at x. */
+const CLIFF_X = 450;
+const cliffEdge = (x: number) => Math.round(362 - (x - CLIFF_X) * 0.56);
+const CLIFF_H = 46;
+
+// ---------------------------------------------------------------- scene objects
+
+/** A light source that the night pass turns on. */
+export type Glow = { x: number; y: number; r: number; color: Color; strength: number; ry?: number };
+
+type Entity = {
+  /** Screen y of the ground line the object stands on: objects are drawn back (small) to front (large). */
+  gy: number;
+  draw: (c: Canvas) => void;
+  /** How the object casts its shadow: sheared from its silhouette (default), a custom mask, or none. */
+  shadow?: false | ((m: ShadowMask) => void);
+  /** The pose that casts the shadow, when `draw` is an animation frame (shadows stay still). */
+  silhouette?: (c: Canvas) => void;
+  outline?: number;
+  /** Tall objects darken toward the ground they stand on (ambient occlusion), this many pixels up. */
+  ao?: number;
+  glows?: Glow[];
 };
-const HAZE = "#c4daf0";
 
-type Stall = { x: number; w: number; awning: readonly (readonly Color[])[]; goods: "potions" | "wizard" | "books" };
-
-export function paintMarket(time: TimeOfDay, seed = 7): Canvas {
-  const r = rng(seed);
-  const glows: Glow[] = [];
-  const scene = new Canvas(W, H);
-
-  mountains(scene);
-  castle(scene, glows);
-  trees(scene);
-  wizardTower(scene, 500, glows);
-  houses(scene, r, glows);
-  bunting(scene, -6, 92, W + 6, 100, 18, r);
-  signboard(scene, W / 2, 110, "MARKTPLATZ");
-  pigeon(scene, W / 2 + 48, 109);
-  cobbles(scene, time);
-
-  const stalls: Stall[] = [
-    { x: 22, w: 168, awning: [RAMPS.cloth.red, RAMPS.cloth.cream], goods: "potions" },
-    { x: 236, w: 168, awning: [RAMPS.cloth.purple, RAMPS.cloth.gold], goods: "wizard" },
-    { x: 450, w: 168, awning: [RAMPS.cloth.green, RAMPS.cloth.cream], goods: "books" },
-  ];
-  for (const s of stalls) stall(scene, s, glows, time);
-  bunting(scene, 190, 152, 236, 152, 8, r);
-  bunting(scene, 404, 152, 450, 152, 8, r);
-  lamppost(scene, 213, glows);
-  lamppost(scene, 427, glows);
-  foreground(scene, glows, time);
-
-  const c = new Canvas(W, H);
-  if (time === "day") daySky(c);
-  else nightSky(c);
-
-  const daylight = new Canvas(W, H);
-  daylight.data.set(scene.data);
-  if (time === "night") grade(scene);
-  composite(c, scene);
-
-  if (time === "night") {
-    for (const g of glows) g(c, daylight);
-    // Vignette toward deep indigo.
-    c.tint(0, 0, W, H, "#08051a", (x, y) => Math.max(0, Math.hypot(((x - W / 2) / (W / 2)) * 0.9, (y - H / 2) / (H / 2)) - 0.7) * 2);
+/** Ground shadow coverage in [0, 1] per pixel. */
+class ShadowMask {
+  readonly data = new Float32Array(W * H);
+  add(x: number, y: number, t = 1) {
+    x = Math.round(x);
+    y = Math.round(y);
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    const i = y * W + x;
+    this.data[i] = Math.max(this.data[i]!, t);
   }
-  return c;
-}
-
-// ---------------------------------------------------------------- sky
-
-function daySky(c: Canvas) {
-  c.gradient(0, 0, W, GROUND, SKY.day);
-  const { x, y, r } = CELESTIAL;
-  // Soft halo rings.
-  for (const [rad, amt] of [
-    [58, 0.25],
-    [40, 0.45],
-    [28, 0.7],
-  ] as const) {
-    c.light(x, y, rad, "#fff8d8", amt);
-  }
-  // Rays: long and short, alternating.
-  for (let k = 0; k < 16; k++) {
-    const a = (k / 16) * Math.PI * 2 + 0.1;
-    const len = k % 2 ? 7 : 12;
-    for (let d = r + 4; d < r + 4 + len; d++) {
-      const px = Math.round(x + Math.cos(a) * d);
-      const py = Math.round(y + Math.sin(a) * d);
-      c.px(px, py, d < r + 7 ? "#ffe066" : "#fff4c2");
-      if (k % 2 === 0 && d < r + 10) c.px(px + 1, py, "#fff0a0");
-    }
-  }
-  c.ellipse(x, y, r, r, (i, j, u, v) => {
-    if (u * u + v * v > 0.85) return "#e8a020";
-    return ramp(["#f0b030", "#ffd040", "#ffe066", "#fff4a8", "#fffbe0"], clamp(0.75 - (u + v) * 0.35), i, j);
-  });
-  // A friendly face.
-  for (const ex of [-6, 5]) {
-    c.rect(x + ex, y - 5, 2, 3, "#9a5a08");
-    c.px(x + ex, y - 5, "#fff4c2");
-  }
-  for (let i = -6; i <= 6; i++) c.px(x + i, y + 3 + Math.round((36 - i * i) / 14), "#9a5a08");
-  c.ellipse(x - 10, y + 2, 2, 1.2, "#ffb060");
-  c.ellipse(x + 10, y + 2, 2, 1.2, "#ffb060");
-
-  const white = ["#8aa0c8", "#b0c4e0", "#d4e2f2", "#f0f6fc", "#ffffff"];
-  cloud(c, 40, 46, 110, 1, white);
-  cloud(c, 250, 28, 80, 2, white);
-  cloud(c, 380, 62, 130, 3, white);
-  cloud(c, 150, 84, 60, 4, white);
-  // Birds.
-  for (const [bx, by] of [
-    [300, 50],
-    [312, 44],
-    [322, 52],
-  ] as const) {
-    for (const [dx, dy] of [
-      [-2, -1],
-      [-1, -1],
-      [0, 0],
-      [1, -1],
-      [2, -1],
-    ] as const) {
-      c.px(bx + dx, by + dy, "#2a2a3a");
-    }
+  at(x: number, y: number) {
+    return x < 0 || y < 0 || x >= W || y >= H ? 0 : this.data[y * W + x]!;
   }
 }
 
-function nightSky(c: Canvas) {
-  c.gradient(0, 0, W, GROUND, SKY.night);
-  // Milky way: a faint diagonal band of dust and dense stars.
-  fill(c, 0, 0, W, 170, (x, y) => {
-    const band = Math.abs(y - (130 - x * 0.18)) / 26;
-    const dust = smooth(x, y, 9, 21) * (1 - band);
-    if (dust > 0.35 && dust - 0.35 > bayer(x, y) * 0.9) return mix(c.get(x, y) ?? SKY.night[2]!, "#8a6ab8", 0.3);
-    return null;
-  });
-  const r = rng(99);
-  for (let k = 0; k < 420; k++) {
-    const x = r.int(0, W - 1);
-    const y = r.int(0, 170);
-    const band = Math.abs(y - (130 - x * 0.18)) < 26;
-    if (!band && r.chance(0.35)) continue;
-    const b = r.next();
-    c.px(x, y, b > 0.8 ? "#fff8e0" : b > 0.4 ? "#c8b8f0" : "#7e6ab8");
-    if (b > 0.97) {
-      for (const [dx, dy] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ] as const) {
-        c.px(x + dx, y + dy, "#a898d8");
+/** Shadow direction: per pixel of height, the shadow moves this far on screen. */
+const SHEAR = { x: -0.5, y: 0.3 } as const;
+
+/** Casts a layer's silhouette onto the ground as if it stood upright on the line y = gy. */
+function castSprite(m: ShadowMask, l: Canvas, gy: number, strength = 1) {
+  if (l.maxX < l.minX) return;
+  const solid = (x: number, y: number) => l.inside(x, y) && l.data[(y * l.width + x) * 4 + 3] !== 0;
+  const hMax = gy - l.minY;
+  const x0 = Math.floor(l.minX + SHEAR.x * hMax) - 1;
+  const x1 = Math.ceil(l.maxX) + 1;
+  for (let dy = gy; dy <= gy + Math.ceil(hMax * SHEAR.y) + 1; dy++) {
+    for (let dx = x0; dx <= x1; dx++) {
+      // Inverse map: which height h and source x land here? Sample a few heights on this row.
+      const h0 = (dy - gy) / SHEAR.y;
+      for (let k = 0; k <= Math.ceil(1 / SHEAR.y); k++) {
+        const h = h0 + k;
+        if (h < 0 || h > hMax) continue;
+        const sx = Math.round(dx - SHEAR.x * h);
+        const sy = Math.round(gy - h);
+        if (solid(sx, sy)) {
+          m.add(dx, dy, strength);
+          break;
+        }
       }
     }
   }
-  const { x, y, r: rad } = CELESTIAL;
-  for (const [hr, amt] of [
-    [60, 0.2],
-    [40, 0.4],
-    [28, 0.6],
-  ] as const) {
-    c.light(x, y, hr, "#b8a8ff", amt);
+}
+
+/** Paints `draw` on a fresh transparent layer the size of the scene. */
+function paintLayer(draw: (l: Canvas) => void): Canvas {
+  const l = new Canvas(W, H);
+  draw(l);
+  return l;
+}
+
+/** Gives a layer's silhouette the selective dark outline, then composites it onto the scene. */
+function composite(c: Canvas, l: Canvas, outline = 1) {
+  if (l.maxX < l.minX) return;
+  const solid = (x: number, y: number) => l.inside(x, y) && l.data[(y * l.width + x) * 4 + 3] !== 0;
+  if (outline > 0) {
+    const edges: [number, number][] = [];
+    for (let y = l.minY; y <= l.maxY; y++) {
+      for (let x = l.minX; x <= l.maxX; x++) {
+        if (solid(x, y) && (!solid(x - 1, y) || !solid(x + 1, y) || !solid(x, y - 1) || !solid(x, y + 1))) edges.push([x, y]);
+      }
+    }
+    for (const [x, y] of edges) {
+      const col = l.get(x, y)!;
+      l.px(x, y, mix(col, outlineOf(col), outline));
+    }
   }
-  c.ellipse(x, y, rad, rad, (i, j, u, v) => {
-    const crater = smooth(i, j, 4, 5) > 0.62 ? -0.2 : 0;
-    return ramp(["#a89868", "#cdb886", "#e8d8a8", "#fff1c8", "#fffbe8"], clamp(0.75 - (u + v) * 0.3 + crater), i, j);
-  });
-  // Thin clouds lit by the moon.
-  fill(c, 0, 20, W, 120, (i, j) => {
-    const s = smooth(i * 0.35, j * 1.6, 8, 31);
-    if (s < 0.68) return null;
-    if (Math.hypot(i - x, j - y) < rad + 1) return null;
-    const lit = Math.hypot(i - x, j - y) < 140;
-    return s - 0.68 > bayer(i, j) * 0.3 ? (lit ? "#8a6aa8" : "#3a2458") : null;
+  for (let y = l.minY; y <= l.maxY; y++) {
+    for (let x = l.minX; x <= l.maxX; x++) {
+      const i = (y * W + x) * 4;
+      if (l.data[i + 3] !== 0) c.px(x, y, l.get(x, y));
+    }
+  }
+}
+
+/** The shadow of a wall of height `h` standing along the ground line gy from x0 to x1. */
+function wallShadow(m: ShadowMask, x0: number, x1: number, gy: number, h: number) {
+  const dx = SHEAR.x * h;
+  const dy = SHEAR.y * h;
+  for (let y = gy; y <= gy + dy; y++) {
+    const t = (y - gy) / dy;
+    for (let x = Math.floor(x0 + dx * t); x <= x1 + dx * t; x++) m.add(x, y);
+  }
+}
+
+// ---------------------------------------------------------------- ground
+
+type Ground = { lawn: Mask; plaza: Mask; vista: (x: number, y: number) => boolean; cliffTop: Int16Array };
+
+function plan(): Ground {
+  const vista = (x: number, y: number) => x >= TOWN_END && y < RIM;
+  const cliffTop = new Int16Array(W).fill(H + 10);
+  for (let x = CLIFF_X; x < W; x++) cliffTop[x] = cliffEdge(x);
+  const inGround = (x: number, y: number) => !vista(x, y) && y < cliffTop[x]!;
+  const lawnAt = (x: number, y: number) => {
+    const n = (smooth(x, y, 14, 41) - 0.5) * 0.5;
+    const bl = ((x - 30) / 120) ** 2 + ((y - 360) / 96) ** 2 + n < 1; // bottom left
+    const rim = ((x - 616) / 70) ** 2 + ((y - 140) / 26) ** 2 + n < 1; // by the railing
+    const tl = ((x + 4) / 64) ** 2 + ((y - 190) / 44) ** 2 + n < 1; // under the big tree
+    return inGround(x, y) && (bl || rim || tl);
+  };
+  const plazaAt = (x: number, y: number) => {
+    const n = (smooth(x, y, 18, 43) - 0.5) * 0.3;
+    const u = (x - FOUNTAIN.x) / 262;
+    const v = (y - FOUNTAIN.y) / 112;
+    const sidewalk = y >= 126 && y < 146 && x < TOWN_END + 20;
+    return inGround(x, y) && (u * u + v * v + n < 1 || sidewalk);
+  };
+  return { lawn: Mask.of(W, H, lawnAt), plaza: Mask.of(W, H, plazaAt), vista, cliffTop };
+}
+
+function paintGround(c: Canvas, g: Ground) {
+  const flags = slabs(19, 13, 17, 0.45);
+  const rings = ringStones(FOUNTAIN.x, FOUNTAIN.y, 0.78, [30, 38, 44, 54, 60, 70, 76], 5);
+  const RING_PALETTES = [STONE, STONE, STONE_TERRA, STONE, STONE_COOL, STONE, STONE_TERRA];
+  const edgeDist = insideDistance(g.plaza);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (g.vista(x, y) || y >= g.cliffTop[x]!) continue;
+      let color: Color;
+      // Behind the houses: shady gardens.
+      if (x < TOWN_END && y < 60) {
+        c.px(x, y, grass(x, y, -0.8));
+        continue;
+      }
+      const ring = rings(x, y);
+      // A worn lane runs from the town down past the fountain, and across to the stalls.
+      const lane = Math.max(0, 1 - Math.abs(x - FOUNTAIN.x - (y - FOUNTAIN.y) * 0.15) / 34) * 0.5 + Math.max(0, 1 - Math.abs(y - 262 - (x - 330) * 0.1) / 20) * 0.35;
+      if (ring > 0 && ring !== -2) color = stoneAt(x, y, rings, 5, RING_PALETTES[Math.floor(ring / 256)] ?? STONE, lane * 0.4);
+      else if (g.plaza.has(x, y)) {
+        const d = edgeDist[y * W + x]!;
+        const slab = flags(x, y);
+        // Toward its edges the paving crumbles into the sand: grout fills with sand, whole slabs go missing.
+        const crumble = Math.max(0, 1 - d / 14);
+        const missing = noise(slab, 7, 17) < crumble * 0.75;
+        const edge = cellEdge(x, y, flags);
+        if (missing) color = sand(x, y);
+        else if (edge === "grout" && noise(x, y, 19) < crumble * 1.6) color = noise(x, y, 20) < 0.5 ? SAND.base : SAND.dark;
+        else {
+          color = stoneAt(x, y, flags, 17, STONE, lane);
+          // Dust gathers on slabs near the sand.
+          if (crumble > 0.2 && noise(x, y, 21) < crumble * 0.25) color = mix(color, SAND.base, 0.6);
+        }
+        // Weeds sprout in the joints near the edges.
+        if (edge === "grout" && crumble > 0.1 && noise(x, y, 22) < 0.08) color = noise(x, y, 23) < 0.5 ? GRASS.mid : GRASS.dark;
+      } else color = sand(x, y);
+      c.px(x, y, color);
+    }
+  }
+  lawn(c, g.lawn);
+  // Wildflowers and ferns in the grass.
+  const r = rng(77);
+  for (let k = 0; k < 60; k++) {
+    const x = r.int(0, W - 1);
+    const y = r.int(130, H - 1);
+    if (!g.lawn.has(x, y) || !g.lawn.has(x, y + 6) || !g.lawn.has(x, y - 6)) continue;
+    if (r.chance(0.35)) fern(c, x, y, 7, k);
+    else flowers(c, x, y, 3, k);
+  }
+  // Stepping stones across the lawn, and a flower bed.
+  for (const [sx, sy] of [
+    [18, 346],
+    [34, 338],
+    [52, 332],
+    [72, 328],
+    [94, 326],
+  ] as const) {
+    c.ellipse(sx, sy, 5, 3, (_, __, u, v) => (u * u + v * v > 0.7 ? "#6e6272" : v < -0.2 ? STONE.high : u > 0.3 ? STONE.light : STONE.base[0]!));
+    c.hline(sx - 4, sx + 4, sy + 3, "#3a3a2a");
+  }
+  flowerBed(c, 16, 286, 34, 10, 5);
+  // Fallen leaves drifting under the big tree.
+  for (let k = 0; k < 70; k++) {
+    const x = Math.round(50 + r.range(-70, 80));
+    const y = Math.round(214 + r.range(-18, 30));
+    if (g.vista(x, y)) continue;
+    const leaf = r.pick(["#c8862a", "#a8641e", "#8fb34c", "#d8a040", "#6f9641"]);
+    c.px(x, y, leaf);
+    if (r.chance(0.5)) c.px(x + 1, y, mix(leaf, "#3a2a1a", 0.4));
+  }
+  puddle(c, 404, 322, 13, 4);
+  puddle(c, 212, 262, 8, 3);
+}
+
+/** A rain puddle mirroring the sky, with a bright rim of reflected light. */
+function puddle(c: Canvas, cx: number, cy: number, rx: number, ry: number) {
+  c.ellipse(cx, cy, rx, ry, (x, y, u, v) => {
+    const wob = (noise(x, y, 5) - 0.5) * 0.3;
+    if (u * u + v * v + wob > 0.9) return null;
+    if (v < -0.5) return "#5a6a8a";
+    if ((x + y) % 7 === 0 && v > 0) return "#ffffff";
+    return u > 0.3 ? "#bcd8f0" : v < 0 ? "#7e9cc4" : "#9cbce0";
   });
 }
 
-/** Moonlight grade: darker, bluer, a little desaturated. */
-function grade(c: Canvas) {
+/** Grass creeping to the edge of the harbour cliff, its blades hanging over the rim of the stones. */
+function grassLip(c: Canvas) {
+  for (let x = CLIFF_X; x < W; x++) {
+    // Find the top of the cliff at this x: the first outline pixel below the sand.
+    let top = -1;
+    for (let y = cliffEdge(x) - 8; y < cliffEdge(x) + 8; y++) {
+      if (c.get(x, y) === "#43202a") {
+        top = y;
+        break;
+      }
+    }
+    if (top < 0) continue;
+    const n = noise(x, 0, 71);
+    const band = 3 + Math.round(smooth(x, 0, 9, 72) * 5);
+    for (let y = top - band; y < top; y++) c.px(x, y, grass(x, y, 0.2));
+    c.px(x, top - band - 1, n < 0.5 ? GRASS.mid : GRASS.light);
+    if (n < 0.55) {
+      c.px(x, top, GRASS.dark);
+      if (n < 0.3) c.px(x, top + 1, GRASS.dark);
+      if (n < 0.12) c.px(x + (n < 0.06 ? 1 : -1), top + 2, GRASS.deep);
+    }
+  }
+}
+
+/** The lip along the back edge of the square, where the ground ends over the sea. */
+function rimLip(c: Canvas) {
+  for (let x = TOWN_END; x < W; x++) {
+    c.px(x, RIM - 1, "#5b4a4e");
+    c.px(x, RIM, STONE.high);
+    c.px(x, RIM + 1, STONE.light);
+    c.px(x, RIM + 2, noise(x, 0, 3) < 0.5 ? STONE.base[0] : STONE.dark);
+  }
+}
+
+/** Shadow of a low round object (a basin): its outline shifted along the sun. */
+function ellipseShadow(m: ShadowMask, cx: number, cy: number, rx: number, ry: number) {
+  for (let y = Math.floor(cy - ry); y <= cy + ry; y++) {
+    for (let x = Math.floor(cx - rx); x <= cx + rx; x++) {
+      if (((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1) m.add(x, y);
+    }
+  }
+}
+
+/** A convex polygon on the ground. */
+function polyShadow(m: ShadowMask, pts: [number, number][]) {
+  const c = new Canvas(W, H);
+  c.poly(pts, "#000000");
+  for (let y = Math.max(0, c.minY); y <= Math.min(H - 1, c.maxY); y++) for (let x = Math.max(0, c.minX); x <= Math.min(W - 1, c.maxX); x++) if (c.get(x, y)) m.add(x, y);
+}
+
+/** Where a point at height h above the ground point (x, z) casts its shadow. */
+const cast = (x: number, z: number, h: number): [number, number] => [x + SHEAR.x * h, z + SHEAR.y * h];
+
+function stallShadow(m: ShadowMask, s: StallSpec) {
+  const { x, gy, w } = s;
+  polyShadow(m, [cast(x - 4, gy - 36, 50), cast(x + w + 4, gy - 36, 50), cast(x + w + 4, gy - 22, 44), cast(x - 4, gy - 22, 44)]);
+  polyShadow(m, [cast(x - 1, gy - 12, 12), cast(x + w, gy - 12, 12), cast(x + w, gy, 12), [x + w, gy], [x - 1, gy], cast(x - 1, gy, 12)]);
+}
+
+const glowAt = (p: { x: number; y: number }): Light => ({ x: p.x, y: p.y + 12, r: 64, color: "#ffc070", strength: 1.15, ry: 46, flicker: true, glowY: p.y });
+
+const look = (skin: Figure["look"]["skin"], hair: readonly [Color, Color, Color], cloth: readonly [Color, Color, Color], more: Partial<Figure["look"]> = {}): Figure["look"] => ({ skin, hair, cloth, ...more });
+const HAIRS = {
+  brown: ["#4a2e22", "#7a4e32", "#a8764a"],
+  black: ["#18121a", "#2a2026", "#44363c"],
+  blond: ["#8a5a24", "#d09a3e", "#f4d070"],
+  red: ["#7a2a1a", "#b8482a", "#e8784a"],
+  grey: ["#6a6a7a", "#a8a8b8", "#e0e0ea"],
+  blue: ["#1e2c5a", "#34508e", "#5a82c4"],
+} as const;
+
+const STALLS: StallSpec[] = [
+  {
+    x: 116,
+    gy: 214,
+    w: 88,
+    stripes: [CLOTH.red, CLOTH.cream],
+    drape: CLOTH.teal,
+    merchant: { look: look("tan", HAIRS.black, CLOTH.teal.slice(1, 4) as never, { hat: CLOTH.red.slice(1, 4) as never }), hair: "bun", outfit: "dress", hat: "scarf" },
+    wares: (c, x, y, w) => bottles(c, x + 2, y + 9, w - 4, 3),
+    shelves: (c, x, y, w) => bottles(c, x, y, w, 4),
+    seed: 1,
+  },
+  {
+    x: 470,
+    gy: 222,
+    w: 96,
+    stripes: [CLOTH.purple, CLOTH.gold],
+    drape: CLOTH.blue,
+    merchant: { look: look("fair", HAIRS.grey, CLOTH.blue.slice(1, 4) as never, { hat: CLOTH.purple.slice(1, 4) as never }), hair: "crop", outfit: "robe", hat: "wizard", extras: ["beard"] },
+    wares: (c, x, y, w) => arcana(c, x + 2, y, w - 4),
+    shelves: (c, x, y, w) => books(c, x, y, w, 7),
+    seed: 2,
+  },
+  {
+    x: 156,
+    gy: 338,
+    w: 96,
+    stripes: [CLOTH.green, CLOTH.cream],
+    drape: CLOTH.gold,
+    merchant: { look: look("brown", HAIRS.brown, CLOTH.green.slice(1, 4) as never, { hat: ["#5a4a2a", "#7a6a3a", "#9a8a5a"] }), hair: "crop", outfit: "tunic", hat: "cap" },
+    wares: (c, x, y, w) => produce(c, x, y, w),
+    shelves: (c, x, y, w) => jars(c, x, y, w, 9),
+    seed: 3,
+  },
+];
+
+const PROPS: [number, (c: Canvas) => void][] = [
+  // Around the potion stall.
+  [214, (c) => barrel(c, 206, 214)],
+  [219, (c) => barrel(c, 214, 219, 12, 14, (cc, cx, cy, rx) => fruitPile(APPLES)(cc, cx, cy + 1, rx))],
+  [216, (c) => crate(c, 98, 216)],
+  [222, (c) => sack(c, 104, 222, 11, 12, "#e8d8a8")],
+  // Around the wizard's stall.
+  [224, (c) => crate(c, 568, 224, 14, 10, 7)],
+  [214, (c) => crate(c, 570, 214, 12, 9, 6)],
+  [226, (c) => pot(c, 588, 226, 5, 11)],
+  // Around the greengrocer.
+  [340, (c) => barrel(c, 256, 340)],
+  [343, (c) => basket(c, 146, 343, 14, 6, fruitPile(ORANGES))],
+  [331, (c) => handcart(c, 262, 331)],
+  // Along the houses and the railing.
+  [134, (c) => planter(c, 2, 134, 22, 1)],
+  [134, (c) => planter(c, 84, 134, 20, 2, ["#ffffff", "#ffe07a", "#b8e0ff"])],
+  [150, (c) => bench(c, 380, 150, 30)],
+  [148, (c) => tavernTable(c, 316, 148)],
+  [152, (c) => dog(c, 344, 152)],
+  [158, (c) => noticeBoard(c, 424, 158, 5)],
+  [130, (c) => spyglass(c, 566, 130)],
+  [136, (c) => pot(c, 358, 136, 5, 10)],
+  [276, (c) => signpost(c, 470, 276)],
+  // Pigeons round the fountain, and the fountain's cat.
+  [282, (c) => pigeon(c, 286, 282, 1, true)],
+  [286, (c) => pigeon(c, 296, 286, -1)],
+  [280, (c) => pigeon(c, 372, 280, -1, true)],
+  [273, (c) => cat(c, 300, 264)],
+];
+
+const FOLK: [number, number, Figure][] = [
+  // The party, looking at the fountain.
+  [306, 300, { look: look("fair", HAIRS.blond, ["#1e3a6a", "#2f5aa8", "#5a86d0"]), hair: "spiky", outfit: "tunic", back: true }],
+  [324, 304, { look: look("tan", HAIRS.blue, ["#5a2a4a", "#8a3a6a", "#b85a8a"], { hat: ["#2a2a5a", "#3e3e7a", "#5a5aa0"] }), hair: "long", outfit: "cloak", back: true }],
+  [344, 300, { look: look("brown", HAIRS.brown, ["#6a4a1a", "#a0702a", "#d09a3a"]), hair: "ponytail", outfit: "tunic", back: true, extras: ["bag"] }],
+  // Shoppers at the stalls.
+  [150, 232, { look: look("fair", HAIRS.red, ["#3a5a2a", "#5a7a3a", "#7a9a4a"]), hair: "long", outfit: "dress", back: true, extras: ["basket"] }],
+  [508, 240, { look: look("deep", HAIRS.black, ["#3a2a5a", "#5a4a7a", "#7a6a9a"]), hair: "curly", outfit: "robe", back: true }],
+  [200, 358, { look: look("fair", HAIRS.brown, ["#7a3a2a", "#a85a3a", "#d07a4a"]), hair: "bun", outfit: "dress", back: true }],
+  // A guard by the railing, an old man on the bench, chatter by the tavern.
+  [606, 150, { look: look("tan", HAIRS.black, ["#6a2a2a", "#9a3a34", "#c05048"], { trim: ["#5a5a6a", "#9a9aaa", "#d0d0e0"] }), hair: "crop", outfit: "surcoat", hat: "helmet" }],
+  [394, 146, { look: look("fair", HAIRS.grey, ["#4a4a5a", "#6a6a7a", "#8a8a9a"]), hair: "bald", outfit: "robe", extras: ["mustache"] }],
+  [262, 154, { look: look("tan", HAIRS.black, ["#6a5a3a", "#8a7a50", "#aa9a6a"], { hat: ["#8a6a2a", "#c8a04a", "#ecd07a"] }), hair: "crop", outfit: "tunic", hat: "straw" }],
+  [279, 152, { look: look("fair", HAIRS.blond, ["#2a5a6a", "#3a7a8a", "#5a9aaa"], { accent: ["#c8b89a", "#efe4cc", "#fffaf0"] }), hair: "ponytail", outfit: "dress", flip: true }],
+  // Children and passers-by.
+  [100, 262, { look: look("brown", HAIRS.black, ["#2a6a6a", "#3a8a84", "#5aaa9e"]), hair: "spiky", outfit: "tunic" }],
+  [412, 268, { look: look("fair", HAIRS.blond, ["#8a2a3a", "#b83e4a", "#e06a6a"]), hair: "bun", outfit: "dress", flip: true }],
+  [492, 286, { look: look("tan", HAIRS.brown, ["#3a3a2a", "#56563a", "#76764e"], { hat: ["#2a3a2a", "#3e5a3a", "#5a7a50"] }), hair: "crop", outfit: "cloak", hat: "hood" }],
+  [410, 334, { look: look("deep", HAIRS.black, ["#8a5a1a", "#c08a2a", "#e8b84a"]), hair: "curly", outfit: "dress", extras: ["basket"] }],
+];
+
+
+// ---------------------------------------------------------------- the scene
+
+const painted = new Map<string, { canvas: Canvas; lights: Light[] }>();
+
+/**
+ * Paints the square by day or night. `frame` (0-3) is the animation frame: townsfolk breathe on odd frames, the
+ * fountain splashes and the sea glitters from frame to frame. Frame 0 is the still picture. Results are cached,
+ * since the animation sheets are cut from the same paintings.
+ */
+export function paintMarket(time: TimeOfDay, frame = 0): Canvas {
+  return render(time, frame).canvas;
+}
+
+/** The light sources of the night scene: where lanterns, lamps and windows glow. */
+export function sceneLights(time: TimeOfDay): Light[] {
+  return render(time, 0).lights;
+}
+
+/**
+ * The wizard merchant's portrait for the shop's dialog box: his bust cut straight from the daylight painting (hat,
+ * face, beard and sash, with his bookshelf behind), so it is always the same wizard as the one at his stall. 36x36,
+ * scaled 4x.
+ */
+export function portrait(): Canvas {
+  const S = 36;
+  const wizard = STALLS.find((s) => s.merchant.hat === "wizard")!;
+  const scene = paintMarket("day");
+  // The wizard's hat tip is 43 rows above his feet; one row of shelf shows above it.
+  const left = merchantX(wizard) - S / 2;
+  const top = merchantY(wizard) - 44;
+  const c = new Canvas(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) c.px(x, y, scene.get(left + x, top + y));
+  return c.scale(4);
+}
+
+function render(time: TimeOfDay, frame: number) {
+  const key = `${time}-${frame}`;
+  const done = painted.get(key);
+  if (done) return done;
+  const result = paintScene(time, frame);
+  painted.set(key, result);
+  return result;
+}
+
+function paintScene(time: TimeOfDay, frame: number): { canvas: Canvas; lights: Light[] } {
+  const c = new Canvas(W, H);
+  const g = plan();
+
+  // The far view: sky, sun, islands, the sea. Whatever stays open sky is remembered, so the night can paint its
+  // own sky there.
+  sky(c, TOWN_END, W, 0, HORIZON);
+  const bare = c.clone();
+  if (time === "day") sun(c, CELESTIAL.x, CELESTIAL.y, CELESTIAL.r);
+  island(c, 410, HORIZON, 34, 16, 3, 0.55);
+  island(c, 470, HORIZON, 18, 9, 4, 0.62);
+  island(c, 628, HORIZON, 40, 20, 5, 0.5);
+  const skyMask = Mask.of(W, H, (x, y) => x >= TOWN_END && y < HORIZON && c.get(x, y) === bare.get(x, y));
+  openSea(c, TOWN_END, W, HORIZON, RIM - 1, CELESTIAL.x, frame);
+  sail(c, 500, 80, 0.35);
+  sail(c, 590, 70, 0.5);
+
+  // The square and the harbour cliff.
+  paintGround(c, g);
+  rimLip(c);
+  for (let y = 0; y < H; y++) for (let x = CLIFF_X; x < W; x++) if (y >= g.cliffTop[x]!) c.px(x, y, harbour(x, y, frame));
+  surf(c, CLIFF_X, cliffFace(c, CLIFF_X, W, cliffEdge, CLIFF_H, 23), 23);
+  grassLip(c);
+  rowboat(c, 612, 346 + (frame === 1 || frame === 2 ? 1 : 0), 36, 12);
+  jetty(c, 624, 318, 20, 6);
+
+  // Everything standing on the square.
+  const night = time === "night";
+  const breathe = frame % 2 === 1;
+  const lights: Light[] = [];
+  const entities: Entity[] = [
+    { gy: 22, draw: (l) => hedge(l, -10, TOWN_END + 6, 6, 3), shadow: false },
+    { gy: 23, draw: (l) => hedge(l, -2, TOWN_END + 2, 16, 8), shadow: false },
+    { gy: TOWN_GY, ao: 16, draw: (l) => bakery(l, lights, night), shadow: (m) => wallShadow(m, -8, 110, TOWN_GY, 68) },
+    { gy: TOWN_GY, ao: 16, draw: (l) => guildHall(l, lights, night), shadow: (m) => wallShadow(m, 110, 232, TOWN_GY, 74) },
+    { gy: TOWN_GY, ao: 16, draw: (l) => tavern(l, lights, night), shadow: (m) => wallShadow(m, 232, 354, TOWN_GY, 66) },
+    { gy: RIM + 7, draw: (l) => railing(l, TOWN_END - 2, W + 4, RIM + 7, 9) },
+    { gy: RIM + 12, draw: (l) => cypress(l, 368, RIM + 12, 46, 3) },
+    { gy: RIM + 14, draw: (l) => cypress(l, 626, RIM + 14, 52, 4) },
+    { gy: 212, draw: (l) => broadleaf(l, 50, 212, 70, 7) },
+    { gy: 316, draw: (l) => shrub(l, 118, 316, 26, 3, ["#f4a0b0", "#ffffff"]) },
+    { gy: 352, draw: (l) => shrub(l, 110, 356, 30, 4) },
+    { gy: 262, draw: (l) => shrub(l, 8, 262, 24, 5, ["#ffd65a", "#ffffff"]) },
+    { gy: 150, draw: (l) => shrub(l, 548, 152, 22, 6, ["#8ab4f0", "#ffffff"]) },
+    { gy: TOWN_GY + 1, shadow: false, draw: (l) => { ivy(l, 104, TOWN_GY, 44, 3); ivy(l, 238, TOWN_GY, 30, 5); ivy(l, 348, TOWN_GY, 52, 7); } },
+    {
+      gy: FOUNTAIN.y + 32,
+      draw: (l) => void fountain(l, FOUNTAIN.x, FOUNTAIN.y, 38, 27, 5, frame),
+      shadow: (m) => ellipseShadow(m, FOUNTAIN.x + SHEAR.x * 8, FOUNTAIN.y + 4 + SHEAR.y * 8, 38, 27),
+    },
+    ...STALLS.map((s) => ({ gy: s.gy, ao: 8, draw: (l: Canvas) => stall(l, s, lights, night, breathe), shadow: (m: ShadowMask) => stallShadow(m, s) })),
+    { gy: 196, draw: (l) => void lights.push(glowAt(lampPost(l, 246, 196, 44, night))) },
+    { gy: 306, draw: (l) => void lights.push(glowAt(lampPost(l, 432, 306, 44, night))) },
+    ...PROPS.map(([gy, draw]) => ({ gy, draw })),
+    { gy: 108, draw: (l) => gull(l, 418, 104, false), shadow: false },
+    { gy: 108, draw: (l) => gull(l, 530, 104, false), shadow: false },
+    {
+      gy: TOWN_GY + 2,
+      shadow: false,
+      draw: (l) => {
+        for (const [x0, y0, x1, y1, sag] of [
+          [-4, 84, 110, 88, 7],
+          [110, 88, 232, 88, 8],
+          [232, 88, 352, 92, 7],
+        ] as const)
+          for (const p of lanternString(l, x0, y0, x1, y1, sag, x0 + 7, night)) lights.push({ x: p.x, y: p.y, r: 16, color: "#ffb45a", strength: 0.55, flicker: true });
+      },
+    },
+    {
+      gy: 223,
+      shadow: false,
+      draw: (l) => {
+        for (const p of lanternString(l, 352, 96, 472, 136, 14, 91, night)) lights.push({ x: p.x, y: p.y, r: 16, color: "#ffb45a", strength: 0.55, flicker: true });
+      },
+    },
+    ...FOLK.map(([x, gy, f]) => ({ gy, draw: (l: Canvas) => figure(l, x, gy, f, breathe), silhouette: (l: Canvas) => figure(l, x, gy, f), outline: 0 })),
+  ];
+  const layers = entities.map((e) => ({ e, l: paintLayer(e.draw) }));
+
+  // Cast shadows and contact shadows, onto the ground only.
+  const shade = new ShadowMask();
+  const contact = new ShadowMask();
+  for (const { e, l } of layers) {
+    if (e.shadow === false) continue;
+    const still = e.silhouette ? paintLayer(e.silhouette) : l;
+    if (e.shadow) e.shadow(shade);
+    else castSprite(shade, still, e.gy);
+    footprint(contact, still, e.gy);
+  }
+  const soft = blur(shade.data, 1);
+  const ao = blur(blur(contact.data, 2), 2);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (g.vista(x, y) || y >= g.cliffTop[x]!) continue;
+      const i = y * W + x;
+      const t = Math.min(1, soft[i]! * 0.85 + ao[i]! * 0.5);
+      if (t <= 0.01) continue;
+      const base = c.get(x, y)!;
+      c.px(x, y, mix(base, multiply(base, "#5a4a88"), 0.78 * t));
+    }
+  }
+
+  // Then the objects, back to front.
+  layers.sort((a, b) => a.e.gy - b.e.gy);
+  for (const { e, l } of layers) {
+    if (e.ao) occlude(l, e.gy, e.ao);
+    composite(c, l, e.outline ?? 1);
+  }
+
+  if (night) nightfall(c, lights, g, skyMask);
+  else daylight(c, g);
+  return { canvas: c, lights };
+}
+
+/** Darkens a layer toward the ground line it stands on. */
+function occlude(l: Canvas, gy: number, height: number) {
+  for (let y = Math.max(l.minY, gy - height); y <= Math.min(l.maxY, gy + 2); y++) {
+    const t = Math.min(1, (y - (gy - height)) / height) ** 1.6 * 0.4;
+    for (let x = l.minX; x <= l.maxX; x++) {
+      const col = l.get(x, y);
+      if (col) l.px(x, y, mix(col, multiply(col, "#4a3a6a"), t));
+    }
+  }
+}
+
+/** Contact shadow: a dark smudge on the ground where an object meets it. */
+function footprint(m: ShadowMask, l: Canvas, gy: number) {
+  if (l.maxX < l.minX) return;
+  for (let x = l.minX; x <= l.maxX; x++) {
+    let touches = false;
+    for (let y = gy - 3; y <= gy + 1 && !touches; y++) touches = l.inside(x, y) && l.data[(y * W + x) * 4 + 3] !== 0;
+    if (!touches) continue;
+    for (let y = gy - 1; y <= gy + 2; y++) m.add(x, y, 1);
+    m.add(x - 1, gy + 1, 0.6);
+  }
+}
+
+/** Box blur of a coverage map. */
+function blur(src: Float32Array, radius: number): Float32Array {
+  const pass = (a: Float32Array, horizontal: boolean) => {
+    const out = new Float32Array(a.length);
+    const n = radius * 2 + 1;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let sum = 0;
+        for (let k = -radius; k <= radius; k++) {
+          const sx = horizontal ? Math.min(W - 1, Math.max(0, x + k)) : x;
+          const sy = horizontal ? y : Math.min(H - 1, Math.max(0, y + k));
+          sum += a[sy * W + sx]!;
+        }
+        out[y * W + x] = sum / n;
+      }
+    }
+    return out;
+  };
+  return pass(pass(src, true), false);
+}
+
+/** Daylight: warm light on what faces the sun, cool depth in the darks, a haze of sun over the sea, bloom. */
+function daylight(c: Canvas, g: Ground) {
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const col = c.get(x, y);
       if (!col) continue;
-      const [r, g, b] = rgb(col);
-      const l = r * 0.3 + g * 0.59 + b * 0.11;
-      c.px(x, y, hex([r * 0.2 + l * 0.1 + 12, g * 0.22 + l * 0.11 + 12, b * 0.3 + l * 0.2 + 36]));
+      const lum = luminance(col);
+      // Grade the town but leave the hazy far view soft.
+      let out = g.vista(x, y) ? col : grade(col, 1.1, 0.3);
+      if (lum > 0.55) out = screen(out, "#ffe2b0", (lum - 0.55) * 0.35);
+      else if (lum < 0.3) out = mix(out, "#1c1638", (0.3 - lum) * 0.5);
+      // The sun's warmth spills over the right half of the scene.
+      const d = Math.hypot((x - CELESTIAL.x) / 420, (y - CELESTIAL.y) / 300);
+      if (d < 1) out = screen(out, "#fff0cc", (1 - d) ** 2 * 0.22);
+      c.px(x, y, out);
     }
   }
+  c.bloom(0.86, 4, 0.4);
+  c.light(CELESTIAL.x, CELESTIAL.y, 56, "#fff4d0", 0.45);
+  // Soft shafts of sunlight slanting down from the sun across the square.
+  const ang = Math.atan2(1, -0.62);
+  const dx = Math.cos(ang);
+  const dy = Math.sin(ang);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const along = (x - CELESTIAL.x) * dx + (y - CELESTIAL.y) * dy;
+      if (along < 0) continue;
+      const across = -(x - CELESTIAL.x) * dy + (y - CELESTIAL.y) * dx;
+      const band = Math.max(0, Math.sin(across / 23 + Math.sin(across / 61) * 2)) ** 6;
+      const fade = Math.max(0, 1 - along / 520) * Math.min(1, along / 60);
+      const t = band * fade * 0.12;
+      if (t < 0.01) continue;
+      const col = c.get(x, y);
+      if (col) c.px(x, y, screen(col, "#fff2cc", t));
+    }
+  }
+  void g;
 }
 
-function composite(dest: Canvas, src: Canvas) {
-  for (let i = 0; i < src.data.length; i += 4) if (src.data[i + 3]) dest.data.set(src.data.subarray(i, i + 4), i);
+/**
+ * The night grade. Brightness keeps its order on a lifted curve (so the square stays readable and lit surfaces
+ * still stand out, as in the game's nights), colour drains to under half, and what is left cools toward moonlight.
+ * `far` things (the view over the sea) sit darker and bluer.
+ */
+function moonlit(col: Color, far = false): Color {
+  const [r, g, b] = rgb(col);
+  const lum = (0.3 * r + 0.59 * g + 0.11 * b) / 255;
+  const target = far ? 0.03 + 0.42 * lum ** 1.25 : 0.05 + 0.62 * lum ** 1.1;
+  const keep = far ? 0.3 : 0.45;
+  const grey = lum * 255;
+  const rr = (grey + (r - grey) * keep) * 0.74;
+  const gg = (grey + (g - grey) * keep) * 0.88;
+  const bb = (grey + (b - grey) * keep) * 1.3;
+  const k = target / Math.max(1e-4, (0.3 * rr + 0.59 * gg + 0.11 * bb) / 255);
+  return hex([rr * k, gg * k, bb * k]);
 }
 
-// ---------------------------------------------------------------- landscape
+/** The night sky over the sea: deep blue overhead, paling toward the horizon. */
+const NIGHT_SKY = ["#0a1230", "#132048", "#1d3060", "#2c4876", "#3e5e86"] as const;
 
-function mountains(c: Canvas) {
-  const far = (x: number) => 112 + (smooth(x, 0, 46, 1) - 0.5) * 70 + (smooth(x, 0, 11, 2) - 0.5) * 16;
-  const farRamp = ["#46557e", "#56688f", "#6a7ca2", "#8092b4", "#98a8c6"];
-  for (let x = 0; x < W; x++) {
-    const top = Math.round(far(x));
-    const slope = far(x + 2) - far(x - 2);
-    for (let y = top; y < 190; y++) {
-      const snow = y < 104 && y - top < 10 - (104 - top) * 0.02;
-      const t = 0.55 + (slope > 0 ? 0.25 : -0.2) + (smooth(x, y, 5, 3) - 0.5) * 0.3 - (y - top) * 0.004;
-      const color = snow ? ramp(["#8a9ac0", "#c8d4ec", "#f4f8ff"], clamp(t + 0.1), x, y) : ramp(farRamp, clamp(t), x, y);
-      c.px(x, y, mix(color, HAZE, 0.35));
-    }
-  }
-  // Nearer green hills with a conifer treeline.
-  const near = (x: number) => 156 + (smooth(x, 0, 34, 5) - 0.5) * 36;
-  for (let x = 0; x < W; x++) {
-    const top = Math.round(near(x));
-    for (let y = top; y < GROUND; y++) {
-      const t = 0.6 - (y - top) * 0.012 + (smooth(x, y, 4, 6) - 0.5) * 0.35;
-      c.px(x, y, mix(ramp(RAMPS.grass, clamp(t), x, y), HAZE, 0.25));
-    }
-  }
-  for (let x = 2; x < W; x += 5) {
-    const base = Math.round(near(x)) + 3;
-    const h = 8 + Math.floor(noise(x, 0, 8) * 10);
-    for (let j = 0; j < h; j++) {
-      const half = Math.round((j / h) * 3.5 + (j % 3 === 0 ? 0.5 : 0));
-      for (let i = -half; i <= half; i++) {
-        c.px(x + i, base - h + j, mix(ramp(["#1a3a2a", "#244a32", "#30603c"], i < 0 ? 0.8 : 0.3, x + i, j), HAZE, 0.2));
-      }
-    }
-  }
-}
-
-function castle(c: Canvas, glows: Glow[]) {
-  // Hill.
-  const hill = (x: number) => 150 - Math.max(0, 1 - ((x - 130) / 130) ** 2) * 34 + (smooth(x, 0, 9, 12) - 0.5) * 6;
-  for (let x = 0; x < 270; x++) {
-    const top = Math.round(hill(x));
-    for (let y = top; y < GROUND; y++) {
-      const t = 0.72 - (y - top) * 0.01 + (smooth(x, y, 3, 13) - 0.5) * 0.4 + (x < 130 ? 0.08 : -0.08);
-      c.px(x, y, ramp(RAMPS.grass, clamp(t), x, y));
-    }
-  }
-  // Winding path up to the gate.
-  for (let y = 118; y < 190; y++) {
-    const px = 128 + Math.round(Math.sin(y / 9) * 10);
-    const w = 3 + Math.floor((y - 118) / 18);
-    fill(c, px - w, y, 2 * w, 1, (i) => ramp(RAMPS.warmStone, 0.55 + (noise(i, y, 4) - 0.5) * 0.4, i, y));
-  }
-  const stone = RAMPS.stone;
-  // Curtain wall with merlons.
-  bricks(c, 60, 86, 140, 34, stone, { bw: 8, bh: 4, seed: 21, shade: (x) => 0.65 - (x - 60) / 280 });
-  for (let x = 60; x < 200; x += 8) {
-    bricks(c, x, 80, 5, 6, stone, { bw: 5, bh: 3, seed: x, shade: () => 0.7 });
-    shadow(c, x + 5, 82, 3, 4, () => 0.6);
-  }
-  shadow(c, 60, 86, 140, 2, () => 0.7);
-  // Hanging banners.
-  for (const bx of [84, 170]) {
-    fill(c, bx, 88, 9, 20, (i, j) => {
-      if (j > 104 && Math.abs(i - bx - 4) < j - 104) return null;
-      return ramp(RAMPS.cloth.red, clamp(0.7 - (i - bx) / 14 + Math.sin(j * 0.5) * 0.08), i, j);
-    });
-    c.ellipse(bx + 4, 95, 2, 2, RAMPS.gold[3]!);
-    c.hline(bx - 1, bx + 9, 87, RAMPS.wood[1]!);
-  }
-  // Gate with portcullis.
-  fill(c, 120, 100, 18, 20, (i, j) => {
-    if (j < 106 && Math.hypot(i - 128.5, j - 106) > 9) return null;
-    return (i - 120) % 4 === 1 || (j - 100) % 4 === 2 ? RAMPS.iron[2]! : "#0e0a14";
-  });
-  // Round towers with conical shingle roofs, arrow slits and waving flags.
-  for (const [x, top, w, h] of [
-    [48, 60, 20, 62],
-    [104, 38, 26, 84],
-    [196, 64, 18, 58],
-  ] as const) {
-    bricks(c, x, top, w, h, stone, { bw: 6, bh: 4, seed: x, shade: (px) => cylinder(px, x, w) });
-    for (let k = 0; k < 3; k++) {
-      const sy = top + 10 + k * 16;
-      if (sy > top + h - 8) break;
-      const sx = x + Math.floor(w / 2);
-      fill(c, sx, sy, 2, 6, () => "#0e0a14");
-      glows.push(visibleGlow(c, sx, sy + 1, 2, 4, (g, visible) => fill(g, sx, sy + 1, 2, 4, (i, j) => (visible(i, j) ? (k % 2 ? "#ffd27a" : "#f0a640") : null))));
-    }
-    for (let i = 0; i < w; i += 5) bricks(c, x + i - 1, top - 5, 4, 5, stone, { bw: 4, bh: 5, seed: i, shade: () => cylinder(x + i, x, w) });
-    const roofH = Math.round(w * 1.3);
-    const peak = top - 6 - roofH;
-    const inside = (i: number, j: number) => j >= peak && j <= top - 5 && Math.abs(i - (x + w / 2 - 0.5)) <= ((j - peak) / roofH) * (w / 2 + 3);
-    shingles(c, inside, [x - 4, peak, w + 8, roofH + 2], RAMPS.roofSlate, (i) => cylinder(i, x - 3, w + 6), x);
-    const fx = Math.round(x + w / 2 - 0.5);
-    c.vline(fx, peak - 14, peak, RAMPS.iron[1]!);
-    for (let i = 1; i < 12; i++) {
-      const wave = Math.round(Math.sin(i * 0.7) * 1.5);
-      for (let j = 0; j < 6; j++) c.px(fx + i, peak - 13 + j + wave, ramp(RAMPS.cloth.red, clamp(0.8 - j * 0.1 + (wave > 0 ? -0.2 : 0.1)), fx + i, j));
-    }
-  }
-}
-
-function trees(c: Canvas) {
-  for (const [x, y, rx, ry, seed] of [
-    [266, 126, 30, 24, 41],
-    [290, 138, 22, 18, 42],
-    [462, 118, 34, 28, 43],
-    [612, 128, 30, 26, 44],
-  ] as const) {
-    fill(c, x - 3, y + ry - 6, 6, 40, (i, j) => ramp(RAMPS.darkWood, i < x ? 0.8 : 0.3, i, j));
-    foliage(c, x, y, rx, ry, seed);
-  }
-}
-
-function wizardTower(c: Canvas, x: number, glows: Glow[]) {
-  const top = 70;
-  const w = 32;
-  bricks(c, x, top, w, GROUND - top, ["#2e2640", "#4a3e62", "#5e5078", "#74668e", "#8a7ea4"], {
-    bw: 6,
-    bh: 4,
-    seed: 77,
-    shade: (px) => cylinder(px, x, w),
-  });
-  // Spiral band.
-  fill(c, x, top, w, GROUND - top, (i, j) => ((j * 1.2 + (i - x) * 1.8) % 48 < 4 ? ramp(RAMPS.cloth.purple, cylinder(i, x, w) * 0.9, i, j) : null));
-  // Ivy on the lower tower.
-  fill(c, x, 150, w, 70, (i, j) => (smooth(i, j, 3, 78) > 0.6 - (j - 150) / 260 ? ramp(RAMPS.leaf, smooth(i, j, 2, 79), i, j) : null));
-  // Balcony with a railing and a brass telescope.
-  fill(c, x - 6, 112, w + 12, 4, (i) => ramp(RAMPS.stone, cylinder(i, x - 6, w + 12), i, 112));
-  for (let i = x - 6; i < x + w + 6; i += 3) c.vline(i, 104, 111, RAMPS.iron[2]!);
-  c.hline(x - 6, x + w + 5, 104, RAMPS.iron[3]!);
-  for (let k = 0; k < 14; k++) {
-    fill(c, x + w + 1 + k, 100 - Math.floor(k * 0.6), 2, 3 - (k > 10 ? 1 : 0), (i, j) => ramp(RAMPS.gold, j % 2 ? 0.5 : 0.9, i, j));
-  }
-  // Arched windows.
-  for (const wy of [84, 130, 176]) {
-    fill(c, x + 12, wy, 8, 12, (i, j) => (j < wy + 3 && Math.hypot(i - (x + 15.5), j - (wy + 3)) > 4 ? null : "#1a1430"));
-    fill(c, x + 11, wy + 12, 10, 2, (i) => ramp(RAMPS.stone, 0.8 - (i - x) / 40, i, wy));
-    glows.push(
-      visibleGlow(c, x + 13, wy + 1, 6, 10, (g, visible) => {
-        fill(g, x + 13, wy + 1, 6, 10, (i, j) =>
-          !visible(i, j) || (j < wy + 3 && Math.hypot(i - (x + 15.5), j - (wy + 3)) > 3) ? null : j === wy + 6 || i === x + 15 ? "#b06a20" : "#ffd27a",
-        );
-        g.light(x + 16, wy + 6, 22, "#ffcf6a", 0.5);
-      }),
-    );
-  }
-  // Conical roof with stars, and a glowing orb on the spire.
-  const peak = top - 50;
-  const inside = (i: number, j: number) => j >= peak && j <= top && Math.abs(i - (x + w / 2 - 0.5)) <= ((j - peak) / 50) * (w / 2 + 6);
-  shingles(c, inside, [x - 8, peak, w + 16, 52], RAMPS.cloth.blue, (i) => cylinder(i, x - 6, w + 12), 88);
-  for (const [sx, sy] of [
-    [x + 10, top - 12],
-    [x + 20, top - 24],
-    [x + 13, top - 34],
-    [x + 22, top - 6],
-  ] as const) {
-    c.px(sx, sy, RAMPS.gold[4]!);
-    c.px(sx - 1, sy, RAMPS.gold[3]!);
-    c.px(sx + 1, sy, RAMPS.gold[3]!);
-    c.px(sx, sy - 1, RAMPS.gold[3]!);
-    c.px(sx, sy + 1, RAMPS.gold[3]!);
-  }
-  const ox = x + w / 2 - 0.5;
-  c.vline(Math.round(ox), peak - 6, peak, RAMPS.gold[2]!);
-  const orb = (g: Canvas, colors: string[]) =>
-    g.ellipse(ox, peak - 10, 4, 4, (i, j, u, v) => (u < -0.3 && v < -0.3 ? "#ffffff" : ramp(colors, clamp(0.7 - (u + v) * 0.3), i, j)));
-  orb(c, ["#2a8ab8", "#5ac8f0", "#bff4ff"]);
-  glows.push((g) => {
-    g.light(ox, peak - 10, 34, "#7ad8ff", 0.9);
-    orb(g, ["#5ac8f0", "#bff4ff", "#ffffff"]);
-  });
-}
-
-// ---------------------------------------------------------------- houses
-
-function houses(c: Canvas, r: ReturnType<typeof rng>, glows: Glow[]) {
-  let x = -14;
-  let k = 0;
-  while (x < W) {
-    const w = r.int(58, 80);
-    const h = r.int(78, 104);
-    if (x + w > 494 && x < 536) {
-      x = 536;
-      continue;
-    }
-    house(c, r, x, w, h, k++, glows);
-    x += w + r.int(-3, 2);
-  }
-}
-
-function house(c: Canvas, r: ReturnType<typeof rng>, x: number, w: number, h: number, k: number, glows: Glow[]) {
-  const base = GROUND;
-  const top = base - h;
-  const roofs = [RAMPS.roofRed, RAMPS.roofSlate, RAMPS.roofBrown][k % 3]!;
-  const plasterTone = r.pick([0.62, 0.72, 0.52]);
-  const timber = RAMPS.darkWood;
-  const jetty = top + Math.floor(h * 0.45);
-
-  // Stone plinth, plaster walls with texture, shaded toward the right and under the jetty.
-  bricks(c, x, base - 10, w, 10, RAMPS.warmStone, { bw: 7, bh: 5, seed: k + 50, shade: (i) => 0.7 - (i - x) / (w * 2) });
-  fill(c, x, top, w, h - 10, (i, j) => {
-    const upper = j < jetty;
-    const ox = upper ? 0 : 3;
-    if (!upper && (i < x + ox || i >= x + w - ox)) return null;
-    const t = plasterTone + (smooth(i, j, 4, k) - 0.5) * 0.18 - ((i - x) / w) * 0.25 - (j > jetty && j < jetty + 4 ? 0.3 : 0);
-    return ramp(RAMPS.plaster, clamp(t), i, j);
-  });
-
-  // Timber frame.
-  const beam = (x0: number, y0: number, x1: number, y1: number) => {
-    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
-    for (let s = 0; s <= steps; s++) {
-      const px = Math.round(x0 + ((x1 - x0) * s) / steps);
-      const py = Math.round(y0 + ((y1 - y0) * s) / steps);
-      c.px(px, py, timber[3]!);
-      c.px(px + 1, py, timber[1]!);
-      c.px(px, py + 1, timber[2]!);
-    }
-  };
-  beam(x, top, x + w - 2, top);
-  beam(x - 1, jetty, x + w - 1, jetty);
-  beam(x + 3, base - 11, x + w - 5, base - 11);
-  for (const bx of [x, x + Math.floor(w / 2) - 1, x + w - 2]) beam(bx, top, bx, jetty);
-  for (const bx of [x + 3, x + w - 5]) beam(bx, jetty, bx, base - 11);
-  beam(x + 2, jetty - 1, x + Math.floor(w / 4), top + 2);
-  beam(x + w - 3, jetty - 1, x + w - Math.floor(w / 4), top + 2);
-  beam(x + Math.floor(w / 2) + 1, jetty - 1, x + Math.floor(w / 2) + Math.floor(w / 6), top + 2);
-  shadow(c, x, jetty + 2, w, 3, () => 0.7);
-
-  // Windows with shutters, glass reflections and flower boxes.
-  const windowAt = (wx: number, wy: number, ww: number, wh: number) => {
-    fill(c, wx - 1, wy - 1, ww + 2, wh + 2, (i, j) => (i === wx - 1 || j === wy - 1 ? timber[3]! : timber[1]!));
-    fill(c, wx, wy, ww, wh, (i, j) => {
-      if (i === wx + Math.floor(ww / 2) || j === wy + Math.floor(wh / 2)) return timber[2]!;
-      const diag = i - wx - (j - wy);
-      return diag > 1 && diag < 4 ? "#e8f4ff" : ramp(["#2a3a5a", "#4a6a9a", "#7aa0d0", "#b8d4f0"], clamp(0.9 - (j - wy) / wh), i, j);
-    });
-    const shutter = [RAMPS.cloth.green, RAMPS.cloth.blue, RAMPS.cloth.red][k % 3]!;
-    for (const sx of [wx - 5, wx + ww + 1]) planks(c, sx, wy - 1, 4, wh + 2, shutter, { vertical: true, size: 2, seed: sx });
-    if (noise(wx, wy, 7) < 0.5) {
-      fill(c, wx - 2, wy + wh + 1, ww + 4, 3, (i, j) => ramp(RAMPS.wood, j === wy + wh + 1 ? 0.8 : 0.4, i, j));
-      for (let i = wx - 2; i < wx + ww + 2; i++) {
-        c.px(i, wy + wh, noise(i, wy, 3) < 0.5 ? ["#e84848", "#ff9ad0", "#ffe066", "#f0f0ff"][Math.floor(noise(i, 1, 4) * 4)]! : RAMPS.leaf[3]!);
-      }
-    }
-    if (noise(wx, wy, 11) < 0.7) {
-      glows.push(
-        visibleGlow(c, wx, wy, ww, wh, (g, visible) => {
-          fill(g, wx, wy, ww, wh, (i, j) =>
-            !visible(i, j) ? null : i === wx + Math.floor(ww / 2) || j === wy + Math.floor(wh / 2) ? "#6a3a14" : (i + j) % 5 === 0 ? "#fff4c2" : "#ffcf6a",
-          );
-          g.light(wx + ww / 2, wy + wh / 2, 16, "#ffcf6a", 0.4);
-        }),
-      );
-    }
-  };
-  const cols = w > 70 ? [0.22, 0.5, 0.78] : [0.28, 0.72];
-  for (const f of cols) windowAt(Math.round(x + w * f) - 3, top + 8, 7, 10);
-  windowAt(Math.round(x + w * 0.3) - 3, jetty + 8, 7, 9);
-
-  // Door with planks, hinges, a handle and a step.
-  const dx = Math.round(x + w * 0.68) - 5;
-  const dy = jetty + 6;
-  const dh = base - 10 - dy;
-  planks(c, dx, dy, 11, dh, RAMPS.roofBrown, { vertical: true, size: 3, seed: dx });
-  fill(c, dx, dy, 11, 4, (i, j) => (Math.hypot(i - (dx + 5), j - (dy + 4)) > 5.5 ? ramp(RAMPS.plaster, 0.5, i, j) : null));
-  c.hline(dx, dx + 6, dy + 6, RAMPS.iron[1]!);
-  c.hline(dx, dx + 6, dy + dh - 5, RAMPS.iron[1]!);
-  c.px(dx + 8, dy + Math.floor(dh / 2), RAMPS.gold[3]!);
-  fill(c, dx - 1, base - 10, 13, 2, (i) => ramp(RAMPS.stone, 0.8 - (i - dx) / 30, i, base));
-
-  if (k % 2 === 0) shopSign(c, x + w - 4, jetty + 2, (["mug", "key", "boot", "bread"] as const)[(k / 2) % 4]!);
-  if (k % 3 === 1) {
-    fill(c, x, jetty, 14, base - jetty, (i, j) => (smooth(i, j, 3, k + 90) > 0.5 + (i - x) / 30 ? ramp(RAMPS.leaf, smooth(i, j, 2, k), i, j) : null));
-  }
-
-  // Steep gabled roof with shingles, an eave shadow and a dormer.
-  const roofH = Math.round(w * 0.62);
-  const peak = top - roofH;
-  const cx = x + w / 2 - 0.5;
-  const inside = (i: number, j: number) => j >= peak && j <= top + 2 && Math.abs(i - cx) <= ((j - peak) / roofH) * (w / 2 + 5);
-  shingles(c, inside, [x - 6, peak, w + 12, roofH + 3], roofs, (i) => (i < cx ? 0.75 : 0.35), k + 30);
-  shadow(c, x, top + 3, w, 3, () => 0.8);
-  if (w > 64) {
-    const ddx = Math.round(cx) - 6;
-    const ddy = top - Math.round(roofH * 0.45);
-    fill(c, ddx, ddy, 12, 12, (i, j) => (j < ddy + 4 && Math.abs(i - ddx - 5.5) > j - ddy + 2 ? null : ramp(RAMPS.plaster, 0.6 - (i - ddx) / 30, i, j)));
-    windowAt(ddx + 3, ddy + 4, 6, 6);
-  }
-  // Brick chimney with a wisp of smoke.
-  if (k % 2 === 1) {
-    const chx = Math.round(x + w * 0.72);
-    const chy = peak + Math.round(roofH * 0.35);
-    bricks(c, chx, chy - 14, 8, 16, ["#3a1a14", "#6a3226", "#8a4432", "#a45a40", "#bc7050"], { bw: 4, bh: 3, seed: chx, shade: (i) => cylinder(i, chx, 8) });
-    fill(c, chx - 1, chy - 16, 10, 2, (i) => ramp(RAMPS.stone, 0.8 - (i - chx) / 12, i, chy));
-    for (let s = 0; s < 10; s++) {
-      c.ellipse(chx + 4 + Math.round(Math.sin(s * 0.7) * 3) + s, chy - 20 - s * 4, 2 + s * 0.35, 1.5 + s * 0.15, (i, j) =>
-        bayer(i, j) < 0.3 - s * 0.025 ? mix(c.get(i, j) ?? "#c8d8f0", "#eef2f8", 0.5) : null,
-      );
-    }
-  }
-}
-
-// ---------------------------------------------------------------- square
-
-function bunting(c: Canvas, x0: number, y0: number, x1: number, y1: number, sag: number, r: ReturnType<typeof rng>) {
-  const colors = [RAMPS.cloth.red, RAMPS.cloth.gold, RAMPS.cloth.blue, RAMPS.cloth.green, RAMPS.cloth.cream];
-  let k = r.int(0, colors.length - 1);
-  for (let x = x0; x <= x1; x++) {
-    const t = (x - x0) / (x1 - x0);
-    const y = Math.round(y0 + (y1 - y0) * t + sag * 4 * t * (1 - t));
-    c.px(x, y, "#2a1a10");
-    if ((x - x0) % 11 === 5) {
-      const cols = colors[k++ % colors.length]!;
-      for (let j = 1; j <= 8; j++) {
-        const half = Math.max(0, 4 - Math.floor(j / 2));
-        for (let i = -half; i <= half; i++) c.px(x + i, y + j, ramp(cols, clamp(0.8 - (i + half) / 12 - j * 0.03), x + i, y + j));
-      }
-    }
-  }
-}
-
-function signboard(c: Canvas, cx: number, y: number, text: string) {
-  const w = text.length * 12 + 16;
-  const x = Math.round(cx - w / 2);
-  const h = 26;
-  for (const px of [x + 8, x + w - 9]) for (let j = y - 12; j < y; j++) c.px(px, j, j % 3 ? RAMPS.iron[3]! : RAMPS.iron[1]!);
-  planks(c, x, y, w, h, RAMPS.wood, { size: 6, seed: 5 });
-  fill(c, x, y, w, h, (i, j) => {
-    const edge = Math.min(i - x, x + w - 1 - i, j - y, y + h - 1 - j);
-    if (edge === 0) return RAMPS.wood[0]!;
-    if (edge === 1) return i - x <= 1 || j - y <= 1 ? RAMPS.wood[4]! : RAMPS.wood[1]!;
-    return null;
-  });
-  for (const [px, py] of [
-    [x + 3, y + 3],
-    [x + w - 4, y + 3],
-    [x + 3, y + h - 4],
-    [x + w - 4, y + h - 4],
-  ] as const) {
-    c.px(px, py, RAMPS.iron[3]!);
-  }
-  [...text].forEach((ch, k) => {
-    FONT[ch]?.forEach((row, j) => {
-      [...row].forEach((bit, i) => {
-        if (bit !== "#") return;
-        const lx = x + 9 + k * 12 + i * 2;
-        const ly = y + 6 + j * 2;
-        fill(c, lx + 1, ly + 1, 2, 2, () => RAMPS.wood[0]!);
-        fill(c, lx, ly, 2, 2, (_, jj) => (jj === ly && j < 3 ? RAMPS.gold[4]! : ramp(RAMPS.gold, 0.8 - j * 0.06, lx, jj)));
-      });
-    });
-  });
-}
-
-function cobbles(c: Canvas, time: TimeOfDay) {
-  fill(c, 0, GROUND, W, H - GROUND, () => "#2e2824");
-  let y = GROUND;
-  let row = 0;
-  while (y < H) {
-    const h = 3 + Math.floor((y - GROUND) / 11);
-    const w = Math.round(h * 2.1) + 2;
-    const off = row % 2 ? Math.floor(w / 2) : 0;
-    for (let x = -off; x < W; x += w + 1) {
-      const tone = noise(x, row, 17);
-      for (let j = 0; j < h - 1; j++) {
-        for (let i = 0; i < w; i++) {
-          const u = (i - (w - 1) / 2) / (w / 2);
-          const v = (j - (h - 2) / 2) / (h / 2);
-          if (u * u + v * v > 1.15) continue;
-          const moss = noise(x + i, y + j, 18) < 0.03 && v > 0.3;
-          const t = 0.45 + tone * 0.25 - u * 0.18 - v * 0.3;
-          c.px(x + i, y + j, moss ? RAMPS.grass[2]! : ramp(RAMPS.warmStone, clamp(t), x + i, y + j));
-        }
-      }
-    }
-    y += h;
-    row++;
-  }
-  // A worn, lighter path through the middle, and puddles reflecting the sky.
-  shadow(c, 0, GROUND, W, H - GROUND, (x) => Math.max(0, 0.5 - Math.abs(x - W / 2) / 260), "#e8dcc8", 0.12);
-  const sky = time === "day" ? SKY.day.slice(2) : SKY.night.slice(2);
-  puddle(c, 300, 304, 26, 5, sky);
-  puddle(c, 116, 296, 14, 3, sky);
-}
-
-function stall(c: Canvas, s: Stall, glows: Glow[], time: TimeOfDay) {
-  const { x, w, awning, goods } = s;
-  const awningTop = 150;
-  const awningBottom = 172;
-  const counterTop = goods === "wizard" ? 246 : 240;
-  const counterBottom = 276;
-
-  // Back wall: draped cloth with a diamond pattern, shaded under the awning.
-  const cloth = awning[0]!;
-  fill(c, x + 4, awningBottom, w - 8, counterTop - awningBottom, (i, j) => {
-    const fold = Math.sin((i - x) * 0.45) * 0.15;
-    const diamond = Math.abs(((i - x) % 12) - 6) + Math.abs(((j - awningBottom) % 12) - 6) === 5;
-    return ramp(cloth, clamp(0.35 + fold - (diamond ? 0.2 : 0)), i, j);
-  });
-  shadow(c, x + 4, awningBottom, w - 8, 14, (_, j) => 1 - (j - awningBottom) / 14, "#0e0a14", 0.45);
-
-  // Two shelves of goods.
-  for (const sy of [awningBottom + 26, awningBottom + 50]) {
-    fill(c, x + 8, sy, w - 16, 3, (i, j) => ramp(RAMPS.wood, j === sy ? 0.9 : 0.35, i, j));
-    for (const bx of [x + 12, x + w - 14]) fill(c, bx, sy + 3, 2, 4, () => RAMPS.wood[1]!);
-    let gx = x + 12;
-    let n = 0;
-    while (gx < x + w - 20) {
-      if (goods === "wizard" && Math.abs(gx - (x + w / 2)) < 24 && sy > awningBottom + 30) {
-        gx += 6;
+/** Night: moonlight over everything, then every lamp and window relights its surroundings. */
+function nightfall(c: Canvas, lights: Light[], g: Ground, skyMask: Mask) {
+  const day = c.clone();
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (skyMask.has(x, y)) {
+        const p = (y / HORIZON) * (NIGHT_SKY.length - 1);
+        const k = Math.min(NIGHT_SKY.length - 2, Math.floor(p));
+        c.px(x, y, mix(NIGHT_SKY[k]!, NIGHT_SKY[k + 1]!, p - k));
         continue;
       }
-      if (goods === "books") {
-        gx += books(c, gx, sy, 4 + (n % 3), gx + sy) + 4;
-      } else {
-        const shape = Math.floor(noise(gx, sy, 5) * 5);
-        bottle(c, gx, sy, shape, LIQUIDS[Math.floor(noise(gx, sy, 6) * LIQUIDS.length)]!, glows);
-        gx += 11 + (shape === 3 ? 3 : 0);
-      }
-      n++;
+      const col = c.get(x, y);
+      if (col) c.px(x, y, moonlit(col, g.vista(x, y)));
     }
   }
-
-  if (goods === "wizard") wizard(c, x + w / 2, counterTop + 2, glows);
-
-  // Posts with wood grain and brass finials.
-  for (const px of [x, x + w - 5]) {
-    planks(c, px, awningTop - 4, 5, counterBottom + 8 - awningTop, RAMPS.wood, { vertical: true, size: 5, seed: px, light: 0.6 });
-    fill(c, px, awningTop - 4, 5, counterBottom + 8 - awningTop, (i) => (i === px ? RAMPS.wood[4]! : i === px + 4 ? RAMPS.wood[0]! : null));
-    c.ellipse(px + 2, awningTop - 7, 3, 3, (i, j, u, v) => ramp(RAMPS.gold, clamp(0.8 - (u + v) * 0.3), i, j));
+  // The night sky: stars, the moon and its path on the sea.
+  const r = rng(99);
+  for (let k = 0; k < 90; k++) {
+    const x = r.int(TOWN_END, W - 1);
+    const y = r.int(0, HORIZON - 4);
+    if (Math.hypot(x - CELESTIAL.x, y - CELESTIAL.y) < CELESTIAL.r + 6) continue;
+    const big = r.chance(0.15);
+    c.px(x, y, big ? "#ffffff" : r.pick(["#c8d4ff", "#e8ecff", "#aab8f0"]));
+    if (big) for (const [i, j] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) c.px(x + i, y + j, "#7a88c8");
   }
+  moon(c, CELESTIAL.x, CELESTIAL.y, CELESTIAL.r);
+  for (let y = HORIZON + 2; y < RIM - 1; y++) {
+    const spread = 4 + (y - HORIZON) * 0.35;
+    for (let x = Math.round(CELESTIAL.x - spread); x <= CELESTIAL.x + spread; x++) {
+      if (noise(x, y, 61) < 0.18 && y % 2 === 0) c.px(x, y, noise(x, y, 62) < 0.5 ? "#e8f0ff" : "#9ab0e0");
+    }
+  }
+  for (const l of lights) {
+    c.relight(day, l.x, l.y, l.r, "#ffd8a0", l.strength, l.ry ?? l.r);
+    c.light(l.x, l.y, l.r * 0.6, l.color, 0.35 * l.strength, (l.ry ?? l.r) * 0.6);
+  }
+  c.bloom(0.62, 5, 0.8);
+  // A light vignette, only in the far corners.
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const d = Math.hypot((x - W / 2) / (W / 2), (y - H / 2) / (H / 2));
+      if (d < 0.85) continue;
+      const col = c.get(x, y);
+      if (col) c.px(x, y, mix(col, "#070a18", Math.min(0.3, (d - 0.85) * 0.8)));
+    }
+  }
+}
 
-  // Hanging herbs, garlic and a small lantern from the awning frame.
-  herbs(c, x + 16, awningBottom + 2, 12, x);
-  garlic(c, x + 28, awningBottom + 1, 4);
-  herbs(c, x + w - 20, awningBottom + 2, 10, x + 1);
-  lantern(c, x + w - 34, awningBottom, glows, 0);
-
-  // Counter: planks, a top edge, and a draped cloth with gold fringe.
-  planks(c, x - 4, counterTop, w + 8, counterBottom - counterTop, RAMPS.wood, { size: 6, seed: x + 1 });
-  fill(c, x - 6, counterTop - 3, w + 12, 3, (i, j) => ramp(RAMPS.wood, j === counterTop - 3 ? 1 : 0.55, i, j));
-  const drape = awning[1]!;
-  fill(c, x + 16, counterTop, w - 32, 22, (i, j) => {
-    if (j - counterTop > 18 - Math.abs(Math.sin((i - x) * 0.2)) * 4) return null;
-    const pattern = (i - x) % 10 === 0 ? -0.2 : 0;
-    return ramp(drape, clamp(0.65 - (j - counterTop) * 0.015 + Math.sin((i - x) * 0.3) * 0.1 + pattern), i, j);
+/** A full moon with soft grey maria and a pale halo. */
+function moon(c: Canvas, cx: number, cy: number, r: number) {
+  c.ellipse(cx, cy, r + 6, r + 6, (x, y) => {
+    const col = c.get(x, y);
+    return col ? screen(col, "#8aa0e0", 0.25) : null;
   });
-  for (let i = x + 16; i < x + w - 16; i += 2) c.px(i, counterTop + 19 + Math.round(-Math.abs(Math.sin((i - x) * 0.2)) * 4), RAMPS.gold[3]!);
-
-  // Goods on the counter.
-  if (goods === "potions") {
-    let gx = x + 8;
-    for (let k = 0; k < 6; k++) {
-      bottle(c, gx, counterTop - 3, (k * 2) % 5, LIQUIDS[k % LIQUIDS.length]!, glows);
-      gx += 12;
-    }
-    fill(c, x + 84, counterTop - 5, 24, 2, (i) => ramp(RAMPS.wood, 0.6, i, counterTop));
-    apples(c, x + 86, counterTop - 5, 7);
-    pumpkin(c, x + 124, counterTop - 9, 7);
-    pumpkin(c, x + 140, counterTop - 7, 5);
-    candle(c, x + 152, counterTop - 3, 6, glows);
-  } else if (goods === "wizard") {
-    openBook(c, x + 14, counterTop - 3);
-    candle(c, x + 42, counterTop - 3, 8, glows);
-    candle(c, x + 47, counterTop - 3, 5, glows);
-    crystalBall(c, x + w / 2 + 34, counterTop - 3, 8, glows);
-    scroll(c, x + w - 44, counterTop - 3, 14, RAMPS.cloth.red[2]!);
-    bottle(c, x + w - 26, counterTop - 3, 3, LIQUIDS[3]!, glows);
-  } else {
-    books(c, x + 8, counterTop - 3, 5, 71);
-    openBook(c, x + 40, counterTop - 3);
-    for (let k = 0; k < 3; k++) scroll(c, x + 70 + k * 3, counterTop - 3 - k * 4, 18, RAMPS.cloth.red[2]!);
-    fill(c, x + 116, counterTop - 5, 10, 2, (i) => ramp(RAMPS.gold, 0.7, i, counterTop));
-    c.ellipse(x + 121, counterTop - 12, 6, 6, (i, j, u, v) =>
-      smooth(i * 2, j * 2, 3, 61) > 0.55 ? ramp(RAMPS.grass, clamp(0.7 - u * 0.3), i, j) : ramp(RAMPS.cloth.blue, clamp(0.8 - (u + v) * 0.3), i, j),
-    );
-    candle(c, x + 140, counterTop - 3, 7, glows);
-    c.ellipse(x + 152, counterTop - 5, 3, 2.5, RAMPS.iron[1]!);
-    c.line(x + 152, counterTop - 7, x + 158, counterTop - 20, "#f4f4fc");
-    c.line(x + 153, counterTop - 8, x + 158, counterTop - 18, "#c8c8d8");
-  }
-
-  // Awning: stripes with fabric shading, a scalloped valance with fringe.
-  for (let i = x - 8; i < x + w + 8; i++) {
-    const stripeW = 12;
-    const k = Math.floor((i - x + 8) / stripeW);
-    const colors = awning[k % 2]!;
-    const within = ((i - x + 8) % stripeW) / (stripeW - 1);
-    for (let j = awningTop; j < awningBottom; j++) {
-      const sag = (j - awningTop) / (awningBottom - awningTop);
-      c.px(i, j, ramp(colors, clamp(0.85 - sag * 0.35 - Math.abs(within - 0.35) * 0.35 + (within < 0.08 ? -0.25 : 0)), i, j));
-    }
-    const scallop = Math.round(Math.sin((((i - x + 8) % stripeW) / stripeW) * Math.PI) * 7);
-    for (let j = awningBottom; j < awningBottom + scallop; j++) {
-      c.px(i, j, ramp(colors, clamp(0.45 - (j - awningBottom) * 0.03 - Math.abs(within - 0.5) * 0.2), i, j));
-    }
-    if (scallop > 2) c.px(i, awningBottom + scallop, i % 2 ? RAMPS.gold[3]! : RAMPS.gold[1]!);
-  }
-  fill(c, x - 10, awningTop - 3, w + 20, 3, (i, j) => ramp(RAMPS.wood, j === awningTop - 3 ? 0.9 : 0.35, i, j));
-
-  // Day: the stall casts a shadow on the cobbles. Night: a warm glow under the awning.
-  if (time === "day") shadow(c, x - 10, counterBottom, w + 10, 12, (i, j) => (i - x + 10 < (j - counterBottom) * 1.4 ? 0 : 0.8), "#1a1430", 0.35);
-  glows.push((g) => g.light(x + w / 2, counterTop - 20, w / 2 + 10, "#ffcf6a", 0.35, 40));
+  c.ellipse(cx, cy, r, r, (x, y, u, v) => {
+    const maria = smooth(x * 1.6, y * 1.6, 7, 5) > 0.62;
+    const rim = u * u + v * v > 0.82;
+    return rim ? "#d8e0f4" : maria ? "#cfd6ea" : u + v < -0.4 ? "#ffffff" : "#f2f4fc";
+  });
 }
 
-function lamppost(c: Canvas, x: number, glows: Glow[]) {
-  fill(c, x - 1, 130, 4, H - 130 - 12, (i) => ramp(RAMPS.iron, i === x - 1 ? 0.8 : i === x + 2 ? 0.1 : 0.4, i, 0));
-  fill(c, x - 5, H - 16, 12, 6, (i, j) => ramp(RAMPS.iron, clamp(0.8 - (i - x + 5) / 14 - (j - (H - 16)) * 0.05), i, j));
-  // Scrollwork arms.
-  for (let k = 0; k < 10; k++) {
-    const dy = Math.round(Math.sin((k / 9) * Math.PI) * 3);
-    c.px(x - 2 - k, 134 - dy, RAMPS.iron[2]!);
-    c.px(x + 3 + k, 134 - dy, RAMPS.iron[2]!);
+/** The harbour water below the cliff: deep teal with short lit ripples. */
+function harbour(x: number, y: number, frame: number): Color {
+  if (y % 3 === 0) {
+    const drift = x + (y * 7) % 11 + frame * 2;
+    const cell = Math.floor(drift / 9);
+    const local = drift % 9;
+    if (local < 4 && noise(cell, y, 51) < 0.55) return noise(cell, y, 52) < 0.3 ? SEA.crest : SEA.light;
   }
-  lantern(c, x + 1, 112, glows, 2);
-  glows.push((g) => g.light(x + 1, H - 12, 34, "#ffcf6a", 0.5, 8));
+  return smooth(x, y, 16, 53) > 0.6 ? SEA.mid : SEA.base;
 }
 
-function foreground(c: Canvas, glows: Glow[], time: TimeOfDay) {
-  if (time === "day") {
-    shadow(c, 0, 300, 60, 14, (i, j) => (i < 50 - (j - 300) ? 0.7 : 0), "#1a1430", 0.35);
-    shadow(c, 560, 300, 80, 16, (i) => (i > 570 ? 0.7 : 0), "#1a1430", 0.35);
-  }
-  barrel(c, 4, 270, 18, 34);
-  barrel(c, 26, 280, 16, 30);
-  sack(c, 56, 292, 16, 22, 3);
-  sack(c, 70, 296, 14, 18, 4);
-  crate(c, 590, 278, 30);
-  crate(c, 604, 250, 24);
-  crate(c, 566, 292, 22);
-  cat(c, 606, 250, glows);
-  pumpkin(c, 548, 306, 8);
-  pumpkin(c, 534, 310, 6);
+// ---------------------------------------------------------------- animation
+
+/** A looping animation cut from the painted frames: a region of the scene and the frames it cycles through. */
+export type Loop = { id: string; x: number; y: number; w: number; h: number; frames: readonly number[]; ms: number };
+
+export const LOOPS: readonly Loop[] = [
+  ...FOLK.map(([x, gy], k) => ({ id: `folk-${k}`, x: x - 9, y: gy - 37, w: 18, h: 39, frames: [0, 1], ms: 1300 + ((k * 7) % 6) * 160 })),
+  ...STALLS.map((s, k) => ({ id: `merchant-${k}`, x: merchantX(s) - 9, y: s.gy - 58, w: 18, h: 34, frames: [0, 1], ms: 1500 + k * 230 })),
+  { id: "fountain", x: FOUNTAIN.x - 40, y: FOUNTAIN.y - 44, w: 80, h: 62, frames: [0, 1, 2, 3], ms: 560 },
+  { id: "sea", x: TOWN_END, y: HORIZON + 1, w: W - TOWN_END, h: RIM - HORIZON - 2, frames: [0, 1, 2, 3], ms: 2400 },
+  { id: "harbour", x: 536, y: 292, w: W - 536, h: H - 292, frames: [0, 1, 2, 3], ms: 2600 },
+];
+
+/** A sprite sheet for a loop: its frames cut from the paintings, side by side. */
+export function loopSheet(time: TimeOfDay, loop: Loop): Canvas {
+  const sheet = new Canvas(loop.w * loop.frames.length, loop.h);
+  loop.frames.forEach((frame, k) => {
+    const c = paintMarket(time, frame);
+    for (let y = 0; y < loop.h; y++) {
+      for (let x = 0; x < loop.w; x++) {
+        const col = c.get(loop.x + x, loop.y + y);
+        if (col) sheet.px(k * loop.w + x, y, col);
+      }
+    }
+  });
+  return sheet;
 }
+
+/** Clouds drift across the sky above the horizon as separate sprites. */
+export const SKY_BOX = { x: TOWN_END, y: 0, w: W - TOWN_END, h: HORIZON - 4 } as const;
+export const CLOUDS = [
+  { id: "cloud-0", w: 74, h: 26, y: 12, ms: 150_000, delay: -40_000, seed: 11 },
+  { id: "cloud-1", w: 56, h: 22, y: 30, ms: 110_000, delay: -85_000, seed: 12 },
+  { id: "cloud-2", w: 40, h: 16, y: 4, ms: 190_000, delay: -150_000, seed: 13 },
+] as const;
+
+export function cloudSprite(time: TimeOfDay, id: string): Canvas {
+  const spec = CLOUDS.find((c) => c.id === id)!;
+  const c = new Canvas(spec.w, spec.h);
+  cloud(c, spec.w / 2, spec.h * 0.72, spec.w * 0.84, spec.seed, 0.08);
+  if (time === "night") for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (c.get(x, y)) c.px(x, y, moonlit(c.get(x, y)!, true));
+  return c;
+}
+
+/** Gulls wheeling over the sea: a two-frame flap and the paths they fly. */
+export const GULLS = [
+  { y: 30, ms: 26_000, delay: -3_000, flap: 520 },
+  { y: 40, ms: 31_000, delay: -17_000, flap: 610 },
+  { y: 84, ms: 38_000, delay: -9_000, flap: 580 },
+] as const;
+
+export function gullSheet(time: TimeOfDay): Canvas {
+  const c = new Canvas(14, 4);
+  const WINGS = [
+    ["o.....o", ".ow.wo.", "..owo..", "......."],
+    ["...o...", "..owo..", ".ow.wo.", "o.....o"],
+  ];
+  WINGS.forEach((rows, k) => rows.forEach((row, j) => [...row].forEach((ch, i) => ch !== "." && c.px(k * 7 + i, j, ch === "o" ? "#5a5a6a" : "#ffffff"))));
+  if (time === "night") for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (c.get(x, y)) c.px(x, y, moonlit(c.get(x, y)!, true));
+  return c;
+}
+
+export { CHIMNEYS };
+
+/** Fireflies drifting over the grass at night. */
+export const FIREFLIES = [
+  [22, 170], [70, 150], [104, 188], [30, 238], [8, 300], [60, 330], [112, 312], [140, 350],
+  [590, 150], [620, 132], [560, 160], [452, 128], [380, 240], [240, 250],
+] as const;

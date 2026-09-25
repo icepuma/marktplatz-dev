@@ -1,0 +1,204 @@
+/* The living hero: the painted market, its sprite sheets and effects. See src/components/Scene.astro. */
+
+@layer components {
+  /* The sun or moon in the painting is a button that switches day and night. */
+  .celestial {
+    position: absolute;
+    border-radius: 999px;
+  }
+  .celestial:hover,
+  .celestial:focus-visible {
+    background: radial-gradient(circle, #fff4c200 45%, #fff4c277 60%, #fff4c200 72%);
+    outline: none;
+  }
+
+  .hero {
+    display: block;
+    width: 100%;
+    image-rendering: pixelated;
+  }
+
+  /*
+   * The living hero spans the whole width. The painting fills a 16:9 stage that covers the viewport box, so wide
+   * screens see all of it and narrow ones see its middle at a sensible pixel size. Sprite sheets, drifting clouds
+   * and gulls, smoke, lantern light and fireflies sit on the stage.
+   */
+  .scene {
+    position: relative;
+    width: 100%;
+    /* Tall enough to feel like a place, short enough that the shop starts on the first screen. */
+    height: clamp(280px, 42vw, 58vh);
+    overflow: hidden;
+    container-type: size;
+    background: var(--navy-900);
+  }
+  .stage {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100cqw, 177.78cqh);
+    aspect-ratio: 16 / 9;
+    translate: -50% -50%;
+  }
+  .stage .hero {
+    height: 100%;
+  }
+  .fx {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .fx-sheet {
+    position: absolute;
+    background-repeat: no-repeat;
+    background-size: calc(var(--n) * 100%) 100%;
+    image-rendering: pixelated;
+    animation: fx-frames var(--ms) steps(var(--n), jump-none) infinite;
+    animation-delay: var(--delay, 0ms);
+  }
+  .fx-gull .fx-sheet {
+    inset: 0;
+  }
+  @keyframes fx-frames {
+    from {
+      background-position: 0% 0;
+    }
+    to {
+      background-position: 100% 0;
+    }
+  }
+  .fx-sky,
+  .fx-sea {
+    position: absolute;
+    overflow: hidden;
+    /* Clouds and gulls fade out behind the tavern instead of being cut off. */
+    mask-image: linear-gradient(to right, transparent, #000 14%);
+  }
+  .fx-cloud {
+    position: absolute;
+    left: 100%;
+    background-size: 100% 100%;
+    image-rendering: pixelated;
+    animation: fx-drift var(--ms) linear infinite;
+    animation-delay: var(--delay);
+  }
+  .fx-gull {
+    position: absolute;
+    left: 100%;
+    animation:
+      fx-drift var(--ms) linear infinite,
+      fx-bob 3.1s ease-in-out infinite alternate;
+    animation-delay: var(--delay), 0ms;
+  }
+  @keyframes fx-drift {
+    from {
+      left: 100%;
+    }
+    to {
+      left: -30%;
+    }
+  }
+  @keyframes fx-bob {
+    to {
+      translate: 0 160%;
+    }
+  }
+  .fx-smoke {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, #f4f0fab0, #f4f0fa00);
+    animation: fx-smoke 5.1s linear infinite;
+    animation-delay: var(--delay);
+  }
+  :where(.dark) .fx-smoke {
+    background: radial-gradient(closest-side, #9aa4c860, #9aa4c800);
+  }
+  @keyframes fx-smoke {
+    0% {
+      transform: translate(0, 0) scale(0.6);
+      opacity: 0;
+    }
+    12% {
+      opacity: 1;
+    }
+    100% {
+      transform: translate(-120%, -420%) scale(2.2);
+      opacity: 0;
+    }
+  }
+  .fx-glow {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, #ffcf8a66, #ffb45a24 55%, #ffb45a00);
+    mix-blend-mode: screen;
+    animation: fx-flicker 2.6s ease-in-out infinite alternate;
+    animation-delay: var(--delay);
+  }
+  @keyframes fx-flicker {
+    0% {
+      opacity: 0.7;
+      transform: scale(0.94);
+    }
+    35% {
+      opacity: 1;
+    }
+    55% {
+      opacity: 0.82;
+      transform: scale(1.04);
+    }
+    100% {
+      opacity: 0.95;
+      transform: scale(0.98);
+    }
+  }
+  .fx-firefly {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, #f6ffc0, #c8ff7a99 45%, #c8ff7a00);
+    mix-blend-mode: screen;
+    animation:
+      fx-wander var(--ms) ease-in-out infinite alternate,
+      fx-blink 2.3s ease-in-out infinite;
+    animation-delay: var(--delay), var(--delay);
+  }
+  @keyframes fx-wander {
+    33% {
+      translate: 180% -120%;
+    }
+    66% {
+      translate: -90% -260%;
+    }
+    100% {
+      translate: 240% -40%;
+    }
+  }
+  @keyframes fx-blink {
+    0%,
+    100% {
+      opacity: 0.15;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fx * {
+      animation: none !important;
+    }
+    .fx-gull,
+    .fx-smoke,
+    .fx-firefly {
+      display: none;
+    }
+    .fx-cloud:nth-child(1) {
+      left: 10%;
+    }
+    .fx-cloud:nth-child(2) {
+      left: 55%;
+    }
+    .fx-cloud:nth-child(3) {
+      left: 80%;
+    }
+  }
+
+}

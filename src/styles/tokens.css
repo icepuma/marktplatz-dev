@@ -1,0 +1,164 @@
+/*
+ * The design system's values. Everything else uses these; no other file defines a colour, font, size or gap.
+ *
+ * Two surfaces, as in Sea of Stars: the page (parchment by day, deep night blue by night) and slate panels, which
+ * stay slate in both themes. Text tokens come in two sets to match: `--ink-*` on the page, `--panel-*` on panels.
+ */
+
+:root {
+  /* ---- Type ---------------------------------------------------------------------------------------------------- */
+  /* The families come from Astro's Fonts API (astro.config.mjs `fonts`, <Font /> in Layout.astro). */
+  --font-display: var(--font-pixelify); /* titles, labels, buttons, tabs, tags, nav */
+  --font-body: var(--font-plex-sans); /* everything people read */
+  --font-mono: var(--font-plex-mono); /* commands, code, file names */
+
+  --text-xs: 0.75rem; /* 12  counts, fine print */
+  --text-sm: 0.875rem; /* 14  secondary text, tables, code */
+  --text-md: 1rem; /* 16  body */
+  --text-lg: 1.125rem; /* 18  lede, panel titles */
+  --text-xl: 1.375rem; /* 22  section titles */
+  --text-2xl: 1.75rem; /* 28  page titles on phones */
+  --text-3xl: 2.25rem; /* 36  page titles */
+
+  --leading-tight: 1.2;
+  --leading-snug: 1.4;
+  --leading: 1.6;
+
+  /* ---- Space: a 4px grid ------------------------------------------------------------------------------------- */
+  --space-1: 0.25rem; /*  4 */
+  --space-2: 0.5rem; /*  8 */
+  --space-3: 0.75rem; /* 12 */
+  --space-4: 1rem; /* 16 */
+  --space-5: 1.25rem; /* 20 */
+  --space-6: 1.5rem; /* 24 */
+  --space-8: 2rem; /* 32 */
+  --space-10: 2.5rem; /* 40 */
+  --space-12: 3rem; /* 48 */
+  --space-16: 4rem; /* 64 */
+
+  /* ---- Shape, depth, motion, measure ------------------------------------------------------------------------- */
+  --radius-sm: 3px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --line: 2px; /* every keyline and border */
+
+  --shadow-panel: inset 0 0 0 var(--line) var(--slate-900), 0 3px 0 var(--slate-950), 0 10px 24px #0b0e1855;
+  --shadow-raised: 0 3px 0 var(--slate-950);
+
+  --duration: 140ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  --measure: 70ch; /* longest comfortable line of running text */
+  --page-width: 72rem;
+  --side-width: 24rem; /* the side column on every page: wide enough for install commands */
+
+  /* ---- Palette (raw; use the semantic tokens below, not these, in components) -------------------------------- */
+  --slate-950: #0b0e18;
+  --slate-900: #10141f;
+  --slate-850: #1b2134;
+  --slate-800: #252d44;
+  --slate-700: #2c3450;
+  --slate-600: #3a4466;
+  --slate-500: #5a6488;
+  --slate-400: #8a94b4;
+  --slate-300: #a9b2cc;
+  --slate-200: #c6cedf;
+  --slate-100: #eef1fa;
+
+  --gold-200: #fff0b0;
+  --gold-300: #f6d27a;
+  --gold-400: #f0c86a;
+  --gold-500: #d9a13a;
+  --gold-600: #c48a26;
+  --gold-ink: #1b1430;
+
+  --blue-300: #a8c4f4;
+  --blue-400: #5a84d0;
+  --blue-500: #3a64b0;
+  --blue-600: #2c4c8e;
+
+  --green-300: #9ff0b4;
+  --green-400: #6fcf8a;
+  --green-900: #15321f;
+
+  --amber-300: #ffd48a;
+  --amber-400: #f0b44a;
+  --amber-900: #3a2a10;
+
+  --red-300: #ffb0a4;
+  --red-400: #ff8a7a;
+  --red-900: #3a1e2a;
+
+  --parchment-100: #fbf5e4;
+  --parchment-200: #f2e8d0;
+  --parchment-300: #e6d6b0;
+  --parchment-500: #c9a458;
+  --navy-950: #0b0f20;
+  --navy-900: #0e1330;
+  --navy-800: #161d44;
+
+  /* ---- Panels (the same in both themes) ---------------------------------------------------------------------- */
+  --panel-top: var(--slate-800);
+  --panel-bottom: var(--slate-850);
+  --panel-well: var(--slate-900); /* inputs, code, rows: anything sunk into a panel */
+  --panel-raised: var(--slate-700); /* hover on rows and buttons */
+  --panel-keyline: var(--slate-200);
+  --panel-divider: var(--slate-700);
+  --panel-text: var(--slate-100);
+  --panel-muted: var(--slate-300);
+  --panel-faint: var(--slate-400);
+  --panel-link: var(--gold-300);
+
+  /* ---- Accent, selection and status (the same in both themes) ------------------------------------------------ */
+  --accent: var(--gold-400); /* name tags, focus, primary actions */
+  --accent-strong: var(--gold-300);
+  --accent-deep: var(--gold-600);
+  --on-accent: var(--gold-ink);
+
+  --select-from: var(--blue-600); /* the blue selection bar */
+  --select-to: var(--blue-500);
+  --select-line: var(--blue-400);
+  --select-text: #ffffff;
+
+  --ok: var(--green-400);
+  --ok-text: var(--green-300);
+  --ok-bg: var(--green-900);
+  --warn: var(--amber-400);
+  --warn-text: var(--amber-300);
+  --warn-bg: var(--amber-900);
+  --danger: var(--red-400);
+  --danger-text: var(--red-300);
+  --danger-bg: var(--red-900);
+
+  --focus: var(--gold-400);
+
+  /* ---- The page: day ------------------------------------------------------------------------------------------ */
+  --page-bg: var(--parchment-200);
+  --page-glow: color-mix(in srgb, var(--gold-500) 14%, transparent);
+  --page-bg-end: color-mix(in srgb, var(--parchment-200) 88%, #000);
+  --ink: #1e2444;
+  --ink-muted: #545878;
+  --ink-link: #2c3a8c;
+  --ink-rule: color-mix(in srgb, #1e2444 18%, transparent);
+  --ink-title: var(--gold-300); /* page titles carry their own dark outline */
+  /* Status and accent colours for text on the page (outside panels): dark enough on parchment. */
+  --ink-accent: #8a5a0f;
+  --ink-ok: #1d6b3a;
+  --ink-warn: #7a5000;
+  --ink-danger: #a3281c;
+}
+
+/* ---- The page: night --------------------------------------------------------------------------------------------- */
+.dark {
+  --page-bg: var(--navy-900);
+  --page-glow: #2a3a8a44;
+  --page-bg-end: var(--navy-950);
+  --ink: #e8e4f4;
+  --ink-muted: #a3acd2;
+  --ink-link: var(--gold-300);
+  --ink-rule: color-mix(in srgb, #e8e4f4 16%, transparent);
+  --ink-accent: var(--gold-400);
+  --ink-ok: var(--green-300);
+  --ink-warn: var(--amber-300);
+  --ink-danger: var(--red-300);
+}

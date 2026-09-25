@@ -2,6 +2,9 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "marktplatz-dev",
   "compatibility_date": "2026-09-23",
+  // Production is served on marktplatz.dev, a Custom Domain: Cloudflare creates its DNS record and certificate on
+  // deploy. workers.dev stays on because pull request Previews live there (Previews don't take routes).
+  "routes": [{ "pattern": "marktplatz.dev", "custom_domain": true }],
   "workers_dev": true,
   // Every uploaded version also gets its own URL.
   "preview_urls": true,

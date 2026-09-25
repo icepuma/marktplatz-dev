@@ -1,8 +1,21 @@
 name: quarantine
 
-# Fetches, license-checks and scans every skill in quarantine/ that isn't approved yet,
-# then opens one promotion PR per passing skill.
+# Every skill version reaches the market the same way, through one pull request that a person merges:
+#   - daily (and on demand) every skill in quarantine/ moves to its repository's newest release tag;
+#   - a merged request (a push to main that changes quarantine/) brings new skills.
+# Each unchecked version is then fetched, license-checked and scanned in a job of its own. A version that clears
+# is copied into approved/; one that doesn't stays in quarantine, held at the gate (gate/ keeps its findings, never
+# its files), and the version already in the market keeps being served. The bumps and the records go into one PR
+# (branch bot/admit) for a person to review and merge once CI passes; the merge deploys the site (deploy.yml).
+# Request PRs get the same checks, read-only, so the verdict shows before anyone merges them.
+#
+# Setup: a GitHub App with contents and pull-requests write, installed on this repository (its client id in the
+# variable MARKTPLATZ_APP_CLIENT_ID, its private key in the secret MARKTPLATZ_APP_PRIVATE_KEY), and a ruleset on
+# main that requires the ci check. The App opens the PR because events caused by GITHUB_TOKEN start no workflows:
+# CI would never run on it.
 on:
+  schedule:
+    - cron: "23 4 * * *"
   push:
     branches: [main]
     paths: [quarantine/**]
@@ -13,7 +26,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: quarantine-${{ github.ref }}
+  group: quarantine-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
 
 jobs:
   plan:
@@ -28,8 +41,17 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun install --frozen-lockfile
+      - name: Look for new releases
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: bun scripts/quarantine.ts updates
       - id: plan
         run: echo "skills=$(bun scripts/quarantine.ts plan)" >> "$GITHUB_OUTPUT"
+      # The later jobs check exactly these manifests, even if a new tag appears meanwhile.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: manifests
+          path: quarantine
+          retention-days: 7
 
   check:
     needs: plan
@@ -39,6 +61,7 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix:
         skill: ${{ fromJSON(needs.plan.outputs.skills) }}
     steps:
@@ -48,6 +71,10 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: manifests
+          path: quarantine
       - name: Fetch, license, scan
         run: bun scripts/quarantine.ts check "$SKILL"
         env:
@@ -58,53 +85,81 @@ jobs:
         run: cat ".quarantine/$SKILL/report.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
         env:
           SKILL: ${{ matrix.skill }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      # Blocked skills too: their findings are published under gate/.
+      - if: always() && hashFiles(format('.quarantine/{0}/scan/summary.json', matrix.skill)) != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: skill-${{ matrix.skill }}
           path: .quarantine/${{ matrix.skill }}
           include-hidden-files: true
           retention-days: 7
 
-  promote:
+  admit:
     needs: [plan, check]
-    # Runs even if some skills failed; only the ones that passed have an artifact.
+    # Runs even if some skills were blocked or failed; every skill that got as far as the scan has an artifact.
     if: always() && github.event_name != 'pull_request' && needs.plan.outputs.skills != '[]'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
+    permissions: {}
     steps:
+      - id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.MARKTPLATZ_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MARKTPLATZ_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun install --frozen-lockfile
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
+          name: manifests
+          path: quarantine
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
           pattern: skill-*
           path: artifacts
-      - name: Open one PR per skill
+      - name: Record every verdict and open the PR
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP: ${{ steps.app.outputs.app-slug }}
+          BRANCH: bot/admit
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898233+github-actions[bot]@users.noreply.github.com"
+          user_id="$(gh api "/users/$APP%5Bbot%5D" --jq .id)"
+          git config user.name "${APP}[bot]"
+          git config user.email "${user_id}+${APP}[bot]@users.noreply.github.com"
+          git switch --quiet -C "$BRANCH"
+
+          # A new release that could not be fetched or license-checked stays out; its manifest keeps the version it had.
+          for file in $(git diff --name-only -- quarantine/); do
+            id="$(basename "$file" .yaml)"
+            [ -d "artifacts/skill-$id" ] || git checkout -- "$file"
+          done
+
+          cleared=0; held=0; body=""
           shopt -s nullglob
           for artifact in artifacts/skill-*; do
             id="${artifact#artifacts/skill-}"
             mkdir -p .quarantine && rm -rf ".quarantine/$id" && cp -r "$artifact" ".quarantine/$id"
-            version="$(jq -r .version ".quarantine/$id/provenance.json")"
-            branch="promote/$id-$version"
-
-            git switch --quiet -C "$branch" origin/main
             bun scripts/promote.ts "$id"
-            # PRs opened with GITHUB_TOKEN don't trigger ci.yml, so run the same checks here.
-            bun scripts/verify.ts
-            git add "approved/$id/$version"
-            git commit --quiet -m "Promote $id@$version"
-            git push --force origin "$branch"
-
-            if ! gh pr view "$branch" --json number >/dev/null 2>&1; then
-              gh pr create --base main --head "$branch" --title "Promote $id@$version" --body-file ".quarantine/$id/report.md"
-            fi
+            if [ "$(jq -r .passed ".quarantine/$id/scan/summary.json")" = true ]; then cleared=$((cleared + 1)); else held=$((held + 1)); fi
+            body+="$(cat ".quarantine/$id/report.md")"$'\n\n'
           done
+          bun scripts/verify.ts
+          # GitHub caps a PR body at 65536 characters; every full report is also in this run's job summaries.
+          if [ "${#body}" -gt 60000 ]; then body="${body:0:60000}"$'\n\n… cut short; every report is in the job summaries of the run.'; fi
+
+          git add quarantine approved gate
+          if git diff --cached --quiet; then echo "Nothing to admit."; exit 0; fi
+          title="Admit skills: $cleared cleared, $held held at the gate"
+          git commit --quiet -m "$title"
+          git push --force origin "$BRANCH"
+
+          printf '%s\n' "Checked by the quarantine workflow: cleared versions go to approved/, the rest stay in quarantine with their findings in gate/. Review and merge it once CI passes." "" "$body" > body.md
+          if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$BRANCH" --title "$title" --body-file body.md
+          else
+            gh pr create --base main --head "$BRANCH" --title "$title" --body-file body.md
+          fi

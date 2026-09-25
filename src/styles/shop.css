@@ -1,0 +1,418 @@
+/*
+ * The shop (index.astro, Builder, FilterMenu, InstallPanel). Arranges primitives from components.css and styles
+ * only the pieces that are the shop's own: the three steps, the toolbar, the menus, the row toggle and its pixel
+ * check box, the scroll's lists and the phone bar. Tokens only.
+ */
+
+@layer components {
+  /* ---- Intro: title, lede and the three steps --------------------------------------------------------------- */
+
+  .how {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-6);
+    margin-top: var(--space-1);
+    counter-reset: how;
+  }
+  .how li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-size: var(--text-md);
+    counter-increment: how;
+  }
+  .how li::before {
+    content: counter(how);
+    display: inline-grid;
+    min-width: var(--space-6);
+    height: var(--space-6);
+    place-items: center;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: var(--text-sm);
+    font-weight: 700;
+    box-shadow: var(--shadow-raised);
+  }
+
+  /* ---- The finder: search, tabs, toolbar, applied filters, result count ------------------------------------- */
+
+  .shop {
+    /* Small controls share one height: that of .btn-sm. */
+    --control-sm: calc(var(--space-6) + var(--space-1));
+  }
+  .shop-main {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .finder {
+    --gap: var(--space-3);
+  }
+  @media (pointer: coarse) {
+    .finder .search kbd {
+      display: none;
+    }
+  }
+  .toolbar-end {
+    margin-left: auto;
+  }
+  .gate-opt {
+    min-height: var(--control-sm);
+    padding-inline: var(--space-1);
+  }
+  .results-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: var(--control-sm);
+  }
+  .chip-kind {
+    color: var(--panel-muted);
+  }
+
+  /* A button that opens a menu: marked in gold while its filter is on, with a small caret. */
+  .menu-trigger[data-active="true"] {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+  .menu-kind {
+    color: var(--panel-muted);
+  }
+  .chevron {
+    width: 0;
+    height: 0;
+    border-top: var(--space-1) solid currentColor;
+    border-inline: var(--space-1) solid transparent;
+  }
+
+  /* The menu itself: a small .panel floating above the page. */
+  .popover {
+    z-index: 50;
+    outline: none;
+  }
+  .menu {
+    width: min(calc(4 * var(--space-16)), calc(100vw - var(--space-8)));
+    padding: var(--space-3);
+  }
+  .menu-narrow {
+    width: auto;
+    min-width: calc(3 * var(--space-12));
+  }
+  .menu-choices {
+    flex-direction: column;
+  }
+  .menu-choices .segment {
+    text-align: left;
+  }
+  .menu-options {
+    display: flex;
+    max-height: calc(4 * var(--space-16));
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .menu-option {
+    display: flex;
+    width: 100%;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+  }
+  .menu-option:hover {
+    background: var(--panel-raised);
+  }
+  .menu-option-label {
+    min-width: 0;
+    flex: 1;
+    overflow-wrap: anywhere;
+  }
+  .menu-clear {
+    align-self: flex-start;
+  }
+
+  /* ---- Result rows: the whole row toggles; "Details" sits above the toggle's hit area ------------------------ */
+
+  .shop-row {
+    position: relative;
+  }
+  .row-toggle {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    gap: var(--space-3);
+    color: inherit;
+    text-align: left;
+  }
+  .row-toggle::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  .row-toggle:focus-visible {
+    outline: none;
+  }
+  .shop-row:has(> .row-toggle:focus-visible) {
+    outline: var(--line) solid var(--focus);
+    outline-offset: var(--line);
+  }
+  .row-link {
+    position: relative;
+    z-index: 1;
+    flex: none;
+  }
+  .row-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .row-art {
+    flex: none;
+  }
+  .row-brings {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row-via {
+    color: var(--accent-strong);
+    font-size: var(--text-xs);
+  }
+  .rows-more {
+    height: var(--line);
+  }
+
+  /* The pixel check box: on (picked), via (comes with a guild), off. */
+  .row-check {
+    display: grid;
+    width: calc(var(--space-4) + var(--line));
+    height: calc(var(--space-4) + var(--line));
+    flex: none;
+    place-items: center;
+    border: var(--line) solid var(--panel-faint);
+    border-radius: var(--radius-sm);
+    background: var(--panel-well);
+  }
+  .row-check[data-state="on"] {
+    border-color: var(--accent-strong);
+    background: linear-gradient(180deg, var(--accent), var(--accent-deep));
+  }
+  .row-check[data-state="on"]::after {
+    content: "";
+    width: var(--space-1);
+    height: var(--space-2);
+    margin-top: calc(-1 * var(--line));
+    border: solid var(--on-accent);
+    border-width: 0 var(--line) var(--line) 0;
+    rotate: 45deg;
+  }
+  .row-check[data-state="via"] {
+    border-color: var(--accent);
+  }
+  .row-check[data-state="via"]::after {
+    content: "";
+    width: var(--space-2);
+    height: var(--space-2);
+    background: var(--accent);
+  }
+
+  @media (max-width: 639px) {
+    /* The opt-in takes the last line, so the short buttons and Sort pair up above it. */
+    .gate-opt {
+      order: 1;
+    }
+    .shop-row {
+      flex-wrap: wrap;
+      row-gap: 0;
+    }
+    .row-toggle {
+      flex-basis: 100%;
+    }
+    .row-link {
+      margin-left: auto;
+      margin-bottom: calc(-1 * var(--space-2));
+    }
+  }
+
+  /* ---- The scroll: the wizard, what is in it, and how to take it home ---------------------------------------- */
+
+  .shop-side {
+    scroll-margin-top: var(--space-6);
+  }
+  .scroll-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .wizard {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-4);
+  }
+  .wizard img {
+    /* A ring rather than a border, so the portrait keeps every pixel of its painting. */
+    margin: calc(2 * var(--line));
+    border-radius: var(--radius-sm);
+    box-shadow:
+      0 0 0 var(--line) var(--panel-keyline),
+      0 0 0 calc(2 * var(--line)) var(--panel-well);
+  }
+  .wizard p {
+    color: var(--panel-text);
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+  }
+  .scroll-contents {
+    /* Room for focus rings inside the scrolling box. */
+    margin: calc(-1 * var(--space-1));
+    padding: var(--space-1);
+    overflow-y: auto;
+    scrollbar-color: var(--panel-raised) transparent;
+    scrollbar-width: thin;
+  }
+  /* The groups keep their height; the box around them scrolls. */
+  .scroll-contents > * {
+    flex-shrink: 0;
+  }
+  .scroll-danger .eyebrow {
+    color: var(--ink-danger);
+  }
+  .scroll-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .scroll-list li {
+    display: flex;
+    min-height: var(--space-8);
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--panel-well);
+    font-size: var(--text-sm);
+  }
+  .scroll-list img {
+    flex: none;
+  }
+  .scroll-name {
+    min-width: 0;
+    flex: 1;
+    font-family: var(--font-display);
+    overflow-wrap: anywhere;
+  }
+  .scroll-meta {
+    color: var(--panel-faint);
+    font-family: var(--font-body);
+    font-size: var(--text-xs);
+  }
+  .scroll-why {
+    color: var(--panel-muted);
+    font-size: var(--text-xs);
+  }
+  .unpick {
+    display: grid;
+    width: var(--space-6);
+    height: var(--space-6);
+    flex: none;
+    place-items: center;
+    border-radius: var(--radius-sm);
+    color: var(--panel-muted);
+    font-size: var(--text-lg);
+    line-height: 1;
+  }
+  .unpick:hover {
+    background: var(--danger-bg);
+    color: var(--danger-text);
+  }
+  .scroll-empty {
+    align-self: flex-start;
+  }
+  .scroll-install {
+    padding-top: var(--space-4);
+    border-top: var(--line) solid var(--panel-divider);
+  }
+
+  /* On phones the scroll sits below the skills, so a bar at the bottom keeps it one tap away. */
+  .scroll-bar {
+    position: fixed;
+    right: var(--space-3);
+    bottom: var(--space-3);
+    left: var(--space-3);
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+    border: var(--line) solid var(--panel-keyline);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+    color: var(--panel-text);
+    font-family: var(--font-display);
+    box-shadow: var(--shadow-panel);
+  }
+  .scroll-bar .btn {
+    margin-left: auto;
+  }
+
+  @media (max-width: 1023px) {
+    .scroll-contents {
+      max-height: calc(5 * var(--space-16));
+    }
+    /* Room below the footer while the bar is shown. */
+    body:has(.shop[data-bar="true"]) {
+      padding-bottom: var(--space-16);
+    }
+  }
+  @media (min-width: 1024px) {
+    /* The scroll never grows past the window: its lists scroll inside, the install block always shows. */
+    .shop-side {
+      display: flex;
+      max-height: calc(100dvh - var(--space-8));
+      flex-direction: column;
+    }
+    .scroll-panel {
+      min-height: 0;
+    }
+    .wizard {
+      flex: none;
+    }
+    .scroll-contents {
+      min-height: calc(3 * var(--space-16));
+    }
+    /* The install block shrinks too: only the commands themselves scroll, so Download and Copy stay in view. */
+    .scroll-install,
+    .scroll-install .install,
+    .scroll-install .install-body,
+    .scroll-install .code {
+      display: flex;
+      min-height: 0;
+      flex: 0 1 auto;
+      flex-direction: column;
+    }
+    .scroll-panel > .scroll-contents {
+      /* The list gives way first, down to its floor; only then do the commands. */
+      flex-shrink: 100;
+    }
+    .scroll-install :is(.segments, .note, .btn-primary, .code-head, .fine) {
+      flex: none;
+    }
+    .scroll-install .code {
+      /* The head plus a few lines of commands; .code clips, so it needs an explicit floor. */
+      min-height: calc(4 * var(--space-8));
+    }
+    .scroll-install .code pre {
+      min-height: 0;
+      flex: 1 1 auto;
+      overflow-y: auto;
+    }
+    .scroll-bar {
+      display: none;
+    }
+  }
+}

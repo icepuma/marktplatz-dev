@@ -1,0 +1,332 @@
+---
+import { existsSync } from "node:fs";
+import Outline from "@/components/Outline.astro";
+import PageHead from "@/components/PageHead.astro";
+import Layout from "@/layouts/Layout.astro";
+import { approvedDir, gateDir, loadCatalog, loadQuarantine } from "@/lib/catalog";
+import { author, licenseName } from "@/lib/browse";
+import type { Finding, Severity } from "@/lib/schema";
+import { REPO } from "@/lib/site";
+import { WATCHMEN, watchman } from "@/lib/watch";
+
+// Every verdict the watch has given, in one place: which skills cleared, which are waiting at the gate with their
+// findings, and which requests have not been checked yet.
+const ids = Object.keys(WATCHMEN);
+const catalog = await loadCatalog();
+const byRepo = [...Map.groupBy(catalog.held, (h) => h.repo)].sort(([a], [b]) => a.localeCompare(b));
+const waiting = [...(await loadQuarantine())]
+  .filter(([id, m]) => !existsSync(approvedDir(id, m.version)) && !existsSync(gateDir(id, m.version)))
+  .sort(([a], [b]) => a.localeCompare(b));
+const skills = [...catalog.skills].sort((a, b) => a.id.localeCompare(b.id));
+const cleared = skills.filter((s) => s.scan.passed).length;
+
+// A held skill can carry the same rule's match dozens of times, once per line it appears on. Group by watchman and
+// rule so that collapses to one entry with a count and every location; the ones that blocked (high or critical)
+// are findings and stay open, the rest are notes and fold away. A blank or literal "null" message falls back to
+// the rule id, since that is what a scanner sometimes reports for an unmessaged rule.
+const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+const blocks = (severity: Severity) => severity === "high" || severity === "critical";
+const cleanMessage = (message: string, ruleId: string) => {
+  // A scanner sometimes appends a captured detail that turned out to be empty, as "<title>: null".
+  const trimmed = message.trim().replace(/:\s*null$/i, "");
+  return trimmed && trimmed.toLowerCase() !== "null" ? trimmed : ruleId;
+};
+type FindingGroup = { scanner: string; ruleId: string; severity: Severity; message: string; locations: { file?: string; line?: number }[] };
+function groupFindings(findings: Finding[]): FindingGroup[] {
+  const groups = new Map<string, FindingGroup>();
+  for (const f of findings) {
+    const key = `${f.scanner}/${f.ruleId}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.locations.push({ file: f.file, line: f.line });
+      if (SEVERITY_RANK[f.severity] < SEVERITY_RANK[existing.severity]) existing.severity = f.severity;
+    } else {
+      groups.set(key, { scanner: f.scanner, ruleId: f.ruleId, severity: f.severity, message: cleanMessage(f.message, f.ruleId), locations: [{ file: f.file, line: f.line }] });
+    }
+  }
+  return [...groups.values()].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || a.ruleId.localeCompare(b.ruleId));
+}
+---
+
+<Layout crumbs={[{ label: "Ledger" }]} title="The ledger" description="Every skill in the market and what the watch said about it, plus the ones held at the gate.">
+  <div class="with-outline">
+  <div class="stack stack-xl">
+    <PageHead title="The ledger">
+      <p class="lede">
+        Every verdict the watch has given: what cleared, what waits at the gate and why, and what has not been checked
+        yet. Look a skill up here before you install it.
+      </p>
+      <Fragment slot="meta">
+        <a class="badge badge-ok" href="#cleared">{cleared} cleared</a>
+        <a class="badge badge-danger" href="#gate">{catalog.held.length} at the gate</a>
+        {waiting.length > 0 ? <a class="badge" href="#waiting">{waiting.length} not checked yet</a> : <span class="badge">0 not checked yet</span>}
+      </Fragment>
+    </PageHead>
+
+    <section class="stack" id="cleared">
+      <h2 class="section-title">Cleared skills <span>{skills.length}</span></h2>
+      <p class="muted">
+        {cleared === skills.length ? `All of them cleared all ${ids.length} watchmen.` : `${cleared} cleared all ${ids.length} watchmen.`}{" "}
+        Notes are findings too small to block; each skill's page lists them.
+      </p>
+      <div class="toolbar">
+        <label class="search">
+          <span class="sr-only">Find a skill</span>
+          <svg class="search-icon" viewBox="0 0 8 8" aria-hidden="true" shape-rendering="crispEdges">
+            <path d="M1 0h3v1H1zM0 1h1v3H0zM4 1h1v3H4zM1 4h3v1H1zM4 5h1v1H4zM5 6h1v1H5zM6 7h1v1H6z" fill="currentColor"></path>
+          </svg>
+          <input type="search" placeholder="Find a skill, crafter or charter…" autocomplete="off" spellcheck="false" data-ledger-find />
+        </label>
+        <label class="check"><input type="checkbox" data-ledger-notes /> Only with notes</label>
+        <span class="fine" data-ledger-count>{skills.length} shown</span>
+      </div>
+      <div class="panel panel-flush table-wrap">
+        <table class="table ledger-table">
+          <thead>
+            <tr><th>Skill</th><th>Version</th><th>Charter</th><th>Admitted</th><th>Watch</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            {
+              skills.map((s) => {
+                const notes = s.scan.findings.length;
+                return (
+                  <tr data-row={`${s.id} ${s.repo} ${s.license}`.toLowerCase()} data-notes={notes}>
+                    <td>
+                      <a href={`/skills/${s.id}`}>{s.id}</a>
+                      <span class="row-meta">{s.repo}</span>
+                    </td>
+                    <td class="mono">{s.version}</td>
+                    <td><a href={`/licenses#skill-${s.id}`}>{licenseName(s.license)}</a></td>
+                    <td>{s.promotedAt.slice(0, 10)}</td>
+                    <td>
+                      <span class="marks">
+                        {ids.map((id) => {
+                          const run = s.scan.scanners.find((r) => r.id === id);
+                          const state = !run ? "" : run.blocked ? "mark-danger" : "mark-ok";
+                          const verdict = !run ? "did not run" : run.blocked ? "not cleared" : "cleared";
+                          const w = WATCHMEN[id]!;
+                          return (
+                            <span class={`mark ${state}`} title={`${w.name}${run ? ` ${run.version}` : ""}: ${verdict}`}>
+                              <span aria-hidden="true">{w.short}</span>
+                              <span class="sr-only">
+                                {w.name}
+                                {run ? ` ${run.version}` : ""}: {verdict}
+                              </span>
+                            </span>
+                          );
+                        })}
+                      </span>
+                    </td>
+                    <td class="ledger-notes">{notes ? <a href={`/skills/${s.id}#watch`}>{notes}<span class="ledger-label"> note{notes === 1 ? "" : "s"}</span></a> : <span class="muted">–</span>}</td>
+                  </tr>
+                );
+              })
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" data-ledger-none hidden>No skill matches.</p>
+    </section>
+
+    <section class="stack" id="gate">
+      <h2 class="section-title">At the gate <span>{catalog.held.length} waiting</span></h2>
+      <p class="measure">
+        Skills that were requested but are not in the market. Most met a rule a watchman flags, which often has an
+        innocent reason, such as a guide that explains how to handle access tokens; they come in once a new tag
+        clears the watch. Their findings are published here. Nothing here is a verdict on the skill or its crafter.
+      </p>
+      <p class="note note-warn measure">
+        The market never copies these. If you want one anyway, tick "Include … at the gate (not cleared)" in the
+        shop: it is then installed straight from its own repository, at the commit that was checked, without the
+        market's review. Every skill and guild page links back to the shop to do this.
+      </p>
+
+      {byRepo.length === 0 && <p class="muted">Nothing is waiting at the gate right now.</p>}
+
+      {
+        byRepo.map(([repo, held]) => (
+          <div class="stack stack-sm">
+            <h3 class="subhead gate-repo">
+              <a href={`https://github.com/${repo}`}>{repo}</a> <span class="count">{held.length}</span>
+            </h3>
+            <ul class="rows">
+              {held.map((h) => {
+                const groups = groupFindings(h.scan.findings);
+                const findingGroups = groups.filter((g) => blocks(g.severity));
+                const noteGroups = groups.filter((g) => !blocks(g.severity));
+                const findingCount = findingGroups.reduce((n, g) => n + g.locations.length, 0);
+                const noteCount = noteGroups.reduce((n, g) => n + g.locations.length, 0);
+                const where = (loc: { file?: string; line?: number }) =>
+                  `https://github.com/${h.repo}/blob/${h.sha}/${h.path}/${loc.file}${loc.line ? `#L${loc.line}` : ""}`;
+                return (
+                  <li class="row gate-row" id={`held-${h.id}`}>
+                    <img src={`/art/skills/${h.id}.png`} alt="" width="32" height="32" class="row-icon" />
+                    <div class="row-main">
+                      <p class="row-title">
+                        <span>{h.id}</span>
+                        <span class="row-meta">
+                          {h.version} · {licenseName(h.license)} · {author(h)}
+                        </span>
+                        <span class="badge badge-danger">not cleared</span>
+                      </p>
+                      <p class="row-text">{h.description}</p>
+                    </div>
+                    <div class="row-side">
+                      <span class="marks">
+                        {ids.map((id) => {
+                          const run = h.scan.scanners.find((r) => r.id === id);
+                          const state = !run ? "" : run.blocked ? "mark-danger" : "mark-ok";
+                          const verdict = !run ? "did not run" : run.blocked ? "not cleared" : "cleared";
+                          const w = WATCHMEN[id]!;
+                          return (
+                            <span class={`mark ${state}`} title={`${w.name}: ${verdict}`}>
+                              <span aria-hidden="true">{w.short}</span>
+                              <span class="sr-only">{w.name}: {verdict}</span>
+                            </span>
+                          );
+                        })}
+                      </span>
+                    </div>
+                    <details class="disclosure row-more gate-more">
+                      <summary>
+                        Why it waits: {findingGroups.length} rule{findingGroups.length === 1 ? "" : "s"}, {findingCount} finding{findingCount === 1 ? "" : "s"}
+                        {noteCount > 0 && `, ${noteCount} note${noteCount === 1 ? "" : "s"}`}
+                      </summary>
+                      <div class="stack">
+                        <ul class="gate-findings">
+                          {findingGroups.map((g) => (
+                            <li class="stack stack-sm">
+                              <p class="cluster">
+                                <span class="badge badge-danger">{watchman(g.scanner).short} {g.ruleId}</span>
+                                <span>{g.message}</span>
+                                <span class="count">{g.locations.length}×</span>
+                              </p>
+                              <p class="gate-where">
+                                {g.locations.map((loc, i) => (
+                                  <>
+                                    {i > 0 && " · "}
+                                    {loc.file ? (
+                                      <a class="mono" href={where(loc)}>
+                                        {loc.file}
+                                        {loc.line ? `:${loc.line}` : ""}
+                                      </a>
+                                    ) : (
+                                      <span class="muted">no file</span>
+                                    )}
+                                  </>
+                                ))}
+                              </p>
+                            </li>
+                          ))}
+                        </ul>
+                        {noteGroups.length > 0 && (
+                          <details class="disclosure">
+                            <summary>
+                              {noteCount} note{noteCount === 1 ? "" : "s"} that did not block
+                            </summary>
+                            <ul class="gate-findings">
+                              {noteGroups.map((g) => (
+                                <li class="stack stack-sm">
+                                  <p class="cluster">
+                                    <span class="badge">{watchman(g.scanner).short} {g.ruleId}</span>
+                                    <span class="muted">{g.message}</span>
+                                    <span class="count">{g.locations.length}×</span>
+                                  </p>
+                                  <p class="gate-where">
+                                    {g.locations.map((loc, i) => (
+                                      <>
+                                        {i > 0 && " · "}
+                                        {loc.file ? (
+                                          <a class="mono" href={where(loc)}>
+                                            {loc.file}
+                                            {loc.line ? `:${loc.line}` : ""}
+                                          </a>
+                                        ) : (
+                                          <span class="muted">no file</span>
+                                        )}
+                                      </>
+                                    ))}
+                                  </p>
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
+                        <p class="fine">
+                          Checked {h.promotedAt.slice(0, 10)} at{" "}
+                          <a href={`https://github.com/${h.repo}/tree/${h.sha}/${h.path}`}>commit {h.sha.slice(0, 12)}</a> ·{" "}
+                          raw reports:{" "}
+                          {h.scan.scanners.map((r, i) => (
+                            <>
+                              {i > 0 && ", "}
+                              <a href={`https://github.com/${REPO}/blob/main/gate/${h.id}/${h.version}/scan/${r.id}.json`}>{watchman(r.id).short}</a>
+                            </>
+                          ))}{" "}
+                          · <a href={`https://github.com/${REPO}/blob/main/gate/${h.id}/${h.version}/scan/summary.json`}>summary</a>
+                        </p>
+                      </div>
+                    </details>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))
+      }
+
+    </section>
+
+    {
+      waiting.length > 0 && (
+        <section class="stack" id="waiting">
+          <h2 class="section-title">Not checked yet <span>{waiting.length}</span></h2>
+          <p class="muted">Requested, but not yet through the watch; they are checked on its next round.</p>
+          <ul class="rows">
+            {waiting.map(([id, m]) => (
+              <li>
+                <a class="row" href={`https://github.com/${m.repo}/tree/${m.version}/${m.path}`}>
+                  <span class="row-icon" aria-hidden="true"></span>
+                  <span class="row-main">
+                    <span class="row-title">
+                      {id} <span class="row-meta">{m.repo} · {m.version}</span>
+                    </span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )
+    }
+  </div>
+  <aside class="outline-side"><Outline /></aside>
+  </div>
+</Layout>
+
+<script>
+  // A link to one skill at the gate opens its findings.
+  const openHeld = () => {
+    const row = location.hash.startsWith("#held-") ? document.getElementById(location.hash.slice(1)) : null;
+    const more = row?.querySelector("details.row-more");
+    if (more instanceof HTMLDetailsElement) more.open = true;
+  };
+  openHeld();
+  window.addEventListener("hashchange", openHeld);
+
+  // Narrow the ledger to the skills matching every word typed, optionally only those with notes.
+  const find = document.querySelector<HTMLInputElement>("[data-ledger-find]")!;
+  const notes = document.querySelector<HTMLInputElement>("[data-ledger-notes]")!;
+  const narrow = () => {
+    const words = find.value.toLowerCase().split(/\s+/).filter(Boolean);
+    let shown = 0;
+    for (const row of document.querySelectorAll<HTMLElement>("[data-row]")) {
+      const match = words.every((w) => row.dataset.row!.includes(w)) && (!notes.checked || row.dataset.notes !== "0");
+      row.hidden = !match;
+      if (match) shown++;
+    }
+    document.querySelector("[data-ledger-count]")!.textContent = `${shown} shown`;
+    document.querySelector<HTMLElement>("[data-ledger-none]")!.hidden = shown > 0;
+  };
+  find.addEventListener("input", narrow);
+  notes.addEventListener("change", narrow);
+</script>

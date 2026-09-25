@@ -7,9 +7,12 @@ export type CatalogSkill = Provenance & {
   scan: ScanSummary;
 };
 
-export type CatalogRole = Role & { id: string };
+/** `skills` are the guild's cleared skills; `held` are the ones waiting at the gate, offered only on request. */
+export type CatalogRole = Role & { id: string; held: string[] };
 
 export type Catalog = {
   skills: CatalogSkill[];
   roles: CatalogRole[];
+  /** Skills that did not clear the watch. They are never copied into the market; installs point at their repo. */
+  held: CatalogSkill[];
 };

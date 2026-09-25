@@ -1,0 +1,10 @@
+{
+  "id": "databricks-dabs",
+  "repo": "databricks/databricks-agent-skills",
+  "path": "skills/databricks-dabs",
+  "version": "v0.2.21",
+  "sha": "660261a395a2e6fab245faf6b756bd81ca33e4a0",
+  "contentHash": "sha256-61f89c6fc5d12147d9f22d5775a31009dac56c3b3d43ba00df8d40687d4f35fe",
+  "license": "LicenseRef-Databricks",
+  "promotedAt": "2026-09-25T16:00:09.196Z"
+}

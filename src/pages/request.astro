@@ -1,0 +1,41 @@
+---
+import RequestForm from "@/components/RequestForm";
+import Outline from "@/components/Outline.astro";
+import PageHead from "@/components/PageHead.astro";
+import Layout from "@/layouts/Layout.astro";
+import { REPO } from "@/lib/site";
+---
+
+<Layout crumbs={[{ label: "Request a skill" }]} title="Request a skill" description="Ask the watch to check a skill on GitHub, by opening a pull request that names it and an exact tag.">
+  <div class="with-outline">
+  <div class="stack stack-xl">
+    <PageHead title="Request a skill">
+      <p class="lede">
+        Know a skill on GitHub that belongs here? Name its repository, folder and an exact tag. This opens GitHub's
+        editor with the request filled in; propose it as a pull request and <a href="/watch">the watch</a> checks it.
+      </p>
+    </PageHead>
+
+    <section class="stack">
+      <RequestForm client:visible repo={REPO} />
+    </section>
+
+    <section class="stack measure">
+      <h2 class="section-title">What happens next</h2>
+      <ol class="steps">
+        <li>Your pull request adds <code class="mono">quarantine/&lt;name&gt;.yaml</code> with the repository, folder and tag.</li>
+        <li>The same checks run on your pull request, so you see the verdict before it merges. Once it merges, the watch fetches that exact tag and checks its charter and its files for the record.</li>
+        <li>
+          If everything clears, the market's own pull request brings the skill in, and a person merges it once CI passes.
+          If a watchman blocks it, it waits <a href="/ledger#gate">at the gate</a> — its findings are published there,
+          never held against you or the skill — and every day the market looks for a newer release to try again.
+        </li>
+      </ol>
+      <p class="muted">
+        Read <a href="/watch">how admission works</a> in full, or see <a href="/ledger#gate">what is currently at the gate</a>.
+      </p>
+    </section>
+  </div>
+  <aside class="outline-side"><Outline /></aside>
+  </div>
+</Layout>

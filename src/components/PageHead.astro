@@ -1,0 +1,28 @@
+---
+/**
+ * Every page opens the same way: what it is (eyebrow and title), why it exists and how to use it (the lede, the
+ * default slot), then its facts as badges (`meta`) and what to do next (`actions`). Skill and guild pages put their
+ * icon beside it; on phones the icon sits next to the title (or above a long one) and the rest runs full width.
+ */
+type Props = { title: string; eyebrow?: string; icon?: { src: string; width: number; height: number; shield?: boolean } };
+const { title, eyebrow, icon } = Astro.props;
+// A long name (a skill id like databricks-spark-structured-streaming) takes the full width on phones.
+const long = title.length > 18;
+---
+
+<header class:list={["page-head", long && "page-head-long"]}>
+  {
+    icon && (
+      <span class:list={["page-icon", icon.shield && "page-icon-shield"]}>
+        <img src={icon.src} alt="" width={icon.width} height={icon.height} class="pixel" />
+      </span>
+    )
+  }
+  {eyebrow && <p class="eyebrow page-head-eyebrow">{eyebrow}</p>}
+  <h1 class="title page-head-title">{title}</h1>
+  <div class="page-head-body">
+    <slot />
+    {Astro.slots.has("meta") && <div class="cluster"><slot name="meta" /></div>}
+    {Astro.slots.has("actions") && <div class="cluster page-head-actions"><slot name="actions" /></div>}
+  </div>
+</header>

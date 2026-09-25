@@ -1,0 +1,10 @@
+{
+  "id": "databricks-iceberg",
+  "repo": "databricks/databricks-agent-skills",
+  "path": "skills/databricks-iceberg",
+  "version": "v0.2.21",
+  "sha": "660261a395a2e6fab245faf6b756bd81ca33e4a0",
+  "contentHash": "sha256-3491a769b72b1be3e9f1e51c4798bee6c06889c86aaf5e0aee99a9f570e1b527",
+  "license": "LicenseRef-Databricks",
+  "promotedAt": "2026-09-25T16:00:09.483Z"
+}

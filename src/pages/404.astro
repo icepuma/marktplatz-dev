@@ -2,7 +2,14 @@
 import Layout from "@/layouts/Layout.astro";
 ---
 
-<Layout title="Lost">
-  <h1 class="adventure-heading text-4xl!">Thou art lost, traveller.</h1>
-  <p class="mt-2 text-muted-foreground"><a href="/" class="underline">Return to the market square</a></p>
+<Layout crumbs={[{ label: "Lost" }]} title="Lost" description="This page wandered off the map.">
+  <div class="empty">
+    <h1 class="title">Thou art lost, traveller.</h1>
+    <p class="lede">This path leads nowhere in the market. Perhaps it was never charted, or the skill moved on.</p>
+    <div class="cluster">
+      <a class="btn btn-primary" href="/">Return to the market square</a>
+      <a class="btn btn-secondary" href="/ledger">See the ledger</a>
+      <a class="btn btn-secondary" href="/request">Request a skill</a>
+    </div>
+  </div>
 </Layout>

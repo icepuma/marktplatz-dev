@@ -1,0 +1,1100 @@
+/*
+ * The primitives every page is built from. Page and island styles (shop.css, pages.css) only arrange these and
+ * never restyle them.
+ *
+ * Interaction concepts, the same everywhere:
+ *   - Selected is the blue selection bar (.segment, .row), marked by aria-selected / aria-pressed / data-on.
+ *   - One primary action per panel, in gold (.btn-primary). Everything else is .btn-secondary or .btn-ghost.
+ *   - Copy lives in the head of a .code block and says "Copied" for a moment.
+ *   - Status is a .badge: ok = cleared, danger = not cleared / blocked, warn = take care, plain = a fact.
+ *   - Long secondary content folds away in a .disclosure.
+ *   - Focus is always the gold ring (base.css). Hover lifts a keyline to gold.
+ */
+
+@layer components {
+  /* ---- Layout -------------------------------------------------------------------------------------------------- */
+
+  .page {
+    width: 100%;
+    max-width: var(--page-width);
+    margin-inline: auto;
+    padding-inline: var(--space-4);
+  }
+  @media (min-width: 640px) {
+    .page {
+      padding-inline: var(--space-6);
+    }
+  }
+
+  /* Vertical rhythm: children spaced by --gap. Every stack sets its own, so nesting never inherits a parent's. */
+  .stack {
+    --gap: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+  }
+  .stack > * {
+    min-width: 0;
+  }
+  .stack-sm {
+    --gap: var(--space-2);
+  }
+  /* The big steps between a page's sections tighten on phones, where the screen is short. */
+  .stack-lg {
+    --gap: var(--space-6);
+  }
+  .stack-xl {
+    --gap: var(--space-8);
+  }
+  @media (min-width: 640px) {
+    .stack-lg {
+      --gap: var(--space-8);
+    }
+    .stack-xl {
+      --gap: var(--space-12);
+    }
+  }
+
+  /* A wrapping row of things: badges, buttons, chips. */
+  .cluster {
+    --gap: var(--space-2);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--gap);
+  }
+
+  /* A row of controls above a list: the search grows, everything else keeps its size. */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+  .toolbar > .search {
+    flex: 1 1 18rem;
+    max-width: 36rem;
+  }
+
+  /* Main column plus a side column from 1024px; stacked below. */
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-8);
+    align-items: start;
+  }
+  @media (min-width: 1024px) {
+    .split {
+      grid-template-columns: minmax(0, 1fr) var(--side-width);
+    }
+    .split-side {
+      position: sticky;
+      top: var(--space-6);
+    }
+  }
+
+  .measure {
+    max-width: var(--measure);
+  }
+
+  /* Shown by day or by night only. */
+  .dark .day-only,
+  :root:not(.dark) .night-only {
+    display: none;
+  }
+
+  /* Read by screen readers, not shown. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* ---- Page header (PageHead.astro) --------------------------------------------------------------------------- */
+
+  /* Eyebrow and title, then the lede, badges and actions. With an icon (skill and guild pages) the icon sits beside
+     the eyebrow and title on phones (above a long title, which then gets the full width) and beside the whole
+     header from 640px. */
+  .page-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "eyebrow" "title" "body";
+    align-items: center;
+    gap: var(--space-1) var(--space-4);
+  }
+  .page-head:has(> .page-icon) {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "icon eyebrow" "icon title" "body body";
+    align-content: center;
+  }
+  .page-head-long:has(> .page-icon) {
+    grid-template-areas: "icon eyebrow" "title title" "body body";
+  }
+  .page-head-long:has(> .page-icon) > .page-head-eyebrow {
+    align-self: center;
+  }
+  .page-icon {
+    grid-area: icon;
+  }
+  .page-head-eyebrow {
+    grid-area: eyebrow;
+    align-self: end;
+  }
+  .page-head-title {
+    grid-area: title;
+    align-self: start;
+    overflow-wrap: anywhere;
+  }
+  .page-head-body {
+    display: flex;
+    min-width: 0;
+    grid-area: body;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+  }
+  .page-head-actions {
+    margin-top: var(--space-1);
+  }
+  /* A token-sized frame around the icon: a skill's item icon or a guild's shield, each at a whole-pixel scale. */
+  .page-icon {
+    display: inline-flex;
+    flex: none;
+    padding: var(--space-2);
+    border: var(--line) solid var(--panel-keyline);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+    box-shadow: var(--shadow-raised);
+  }
+  .page-icon img {
+    width: var(--space-16);
+    height: auto;
+  }
+  .page-icon-shield img {
+    width: var(--space-12);
+  }
+  @media (min-width: 640px) {
+    .page-head:has(> .page-icon),
+    .page-head-long:has(> .page-icon) {
+      grid-template-areas: "icon eyebrow" "icon title" "icon body";
+      grid-template-rows: auto auto 1fr;
+      column-gap: var(--space-6);
+    }
+    .page-icon {
+      align-self: start;
+    }
+    .page-head-long:has(> .page-icon) > .page-head-eyebrow {
+      align-self: end;
+    }
+    .page-icon-shield img {
+      width: calc(2 * var(--space-12));
+    }
+  }
+
+  /* ---- Type ---------------------------------------------------------------------------------------------------- */
+
+  /* The page title: gold, with the dark outline of a game logo. */
+  .title {
+    color: var(--ink-title);
+    font-family: var(--font-display);
+    font-size: var(--text-2xl);
+    font-weight: 700;
+    line-height: var(--leading-tight);
+    text-shadow:
+      2px 0 var(--slate-850),
+      -2px 0 var(--slate-850),
+      0 2px var(--slate-850),
+      0 -2px var(--slate-850),
+      0 4px 0 var(--slate-950);
+  }
+  @media (min-width: 640px) {
+    .title {
+      font-size: var(--text-3xl);
+    }
+  }
+  .eyebrow {
+    color: var(--ink-muted);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+    letter-spacing: 0.04em;
+  }
+  .lede {
+    max-width: var(--measure);
+    color: var(--ink-muted);
+    font-size: var(--text-lg);
+    line-height: var(--leading-snug);
+  }
+
+  /* A section heading, with optional quiet meta after it: <h2 class="section-title">Ledger <span>45</span></h2> */
+  .section-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-3);
+    font-size: var(--text-xl);
+  }
+  .section-title > span {
+    color: var(--ink-muted);
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
+    font-weight: 400;
+  }
+  .subhead {
+    font-size: var(--text-lg);
+  }
+  .muted {
+    color: var(--ink-muted);
+  }
+  .fine {
+    color: var(--ink-muted);
+    font-size: var(--text-sm);
+  }
+  .mono {
+    font-family: var(--font-mono);
+  }
+
+  /* Rendered markdown (SKILL.md recipes). */
+  .prose {
+    max-width: var(--measure);
+    font-size: var(--text-md);
+    line-height: var(--leading);
+  }
+  .prose > * + * {
+    margin-top: var(--space-4);
+  }
+  .prose :is(h3, h4, h5, h6) {
+    margin-top: var(--space-8);
+    color: var(--accent-strong);
+  }
+  .prose > :first-child {
+    margin-top: 0;
+  }
+  .prose :is(h3, h4, h5, h6) + * {
+    margin-top: var(--space-2);
+  }
+  .prose h3 {
+    font-size: var(--text-lg);
+  }
+  .prose :is(h4, h5, h6) {
+    font-size: var(--text-md);
+  }
+  .prose :is(ul, ol) {
+    padding-left: var(--space-6);
+  }
+  .prose ul {
+    list-style: square;
+  }
+  .prose ol {
+    list-style: decimal;
+  }
+  .prose li + li {
+    margin-top: var(--space-1);
+  }
+  .prose :not(pre) > code {
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-sm);
+    background: var(--panel-well);
+    font-size: var(--text-sm);
+  }
+  .prose pre {
+    overflow-x: auto;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius);
+    background: var(--panel-well);
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+  }
+  .prose blockquote {
+    padding-left: var(--space-4);
+    border-left: var(--line) solid var(--accent);
+    color: var(--panel-muted);
+  }
+  .prose table {
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+  .prose :is(th, td) {
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--panel-divider);
+  }
+
+  /* ---- Surfaces ------------------------------------------------------------------------------------------------ */
+
+  /* The slate game panel. Text on it uses the --panel-* colours. */
+  .panel {
+    position: relative;
+    padding: var(--space-5);
+    border: var(--line) solid var(--panel-keyline);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+    color: var(--panel-text);
+    box-shadow: var(--shadow-panel);
+  }
+  /* Everything slate reads with the panel's text colours. */
+  :is(.panel, .row, .popover) {
+    --ink: var(--panel-text);
+    --ink-muted: var(--panel-muted);
+    --ink-link: var(--panel-link);
+    --ink-rule: var(--panel-divider);
+    --ink-accent: var(--accent);
+    --ink-ok: var(--ok-text);
+    --ink-warn: var(--warn-text);
+    --ink-danger: var(--danger-text);
+  }
+  .panel-flush {
+    padding: 0;
+    overflow: hidden;
+  }
+  /* A panel with a name tag needs room above its first line. */
+  .panel:has(> .name-tag) {
+    padding-top: var(--space-6);
+  }
+
+  /* A gold name tag on a panel's top edge, like a speaker's name in a dialogue box. */
+  .name-tag {
+    position: absolute;
+    top: calc(-1 * var(--space-3));
+    left: var(--space-4);
+    padding: 0 var(--space-2);
+    border: var(--line) solid var(--panel-keyline);
+    border-radius: var(--radius-sm);
+    background: var(--panel-bottom);
+    color: var(--accent);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    box-shadow: inset 0 0 0 1px var(--slate-900);
+  }
+  .name-tag a {
+    color: inherit;
+  }
+
+  /* Sunk into a panel: code, inputs, lists of rows. */
+  .well {
+    border-radius: var(--radius);
+    background: var(--panel-well);
+    box-shadow: inset 0 1px 0 var(--slate-950);
+  }
+
+  /* A callout. Plain is informational; -warn and -danger for care and risk. */
+  .note {
+    padding: var(--space-3) var(--space-4);
+    border: var(--line) solid var(--panel-divider);
+    border-radius: var(--radius);
+    background: var(--panel-well);
+    color: var(--panel-text);
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+  }
+  .note a {
+    color: inherit;
+  }
+  .note-warn {
+    border-color: var(--warn);
+    background: var(--warn-bg);
+    color: var(--warn-text);
+  }
+  .note-danger {
+    border-color: var(--danger);
+    background: var(--danger-bg);
+    color: var(--danger-text);
+  }
+  .note-ok {
+    border-color: var(--ok);
+    background: var(--ok-bg);
+    color: var(--ok-text);
+  }
+
+  /* ---- Buttons ------------------------------------------------------------------------------------------------- */
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-height: 2.25rem;
+    padding: var(--space-1) var(--space-4);
+    border: var(--line) solid transparent;
+    border-radius: var(--radius);
+    font-family: var(--font-display);
+    font-size: var(--text-md);
+    line-height: 1.2;
+    text-decoration: none;
+    white-space: nowrap;
+    transition:
+      filter var(--duration) var(--ease),
+      border-color var(--duration) var(--ease),
+      background-color var(--duration) var(--ease),
+      transform var(--duration) var(--ease);
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  /* The one thing to do next: gold. */
+  .btn-primary {
+    border-color: var(--accent-strong);
+    background: linear-gradient(180deg, var(--gold-500), var(--accent-deep));
+    color: var(--on-accent);
+    box-shadow:
+      inset 0 0 0 1px var(--gold-200),
+      var(--shadow-raised);
+  }
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+  /* Everything else. */
+  .btn-secondary {
+    border-color: var(--slate-500);
+    background: var(--panel-bottom);
+    color: var(--panel-text);
+    box-shadow: var(--shadow-raised);
+  }
+  .btn-secondary:hover:not(:disabled),
+  .btn-secondary[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+  .btn-ghost {
+    padding-inline: var(--space-2);
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    color: var(--accent-strong);
+  }
+  .btn-sm {
+    min-height: 1.75rem;
+    padding: 0 var(--space-3);
+    font-size: var(--text-sm);
+  }
+  .btn-block {
+    width: 100%;
+  }
+
+  /* ---- Form controls ------------------------------------------------------------------------------------------- */
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .field > span {
+    color: var(--panel-muted);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+  }
+  .input,
+  .select {
+    min-height: 2.25rem;
+    padding: var(--space-1) var(--space-3);
+    border: var(--line) solid var(--slate-500);
+    border-radius: var(--radius);
+    background: var(--panel-well);
+    color: var(--panel-text);
+    font-family: var(--font-body);
+    font-size: var(--text-md);
+    transition: border-color var(--duration) var(--ease);
+  }
+  .input::placeholder {
+    color: var(--panel-faint);
+  }
+  .input:focus,
+  .select:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
+
+  /* A search box: icon, input, and a clear button or a key hint. */
+  .search {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 2.75rem;
+    padding: 0 var(--space-3) 0 var(--space-4);
+    border: var(--line) solid var(--panel-keyline);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, var(--panel-bottom), var(--panel-top));
+    color: var(--panel-text);
+    box-shadow: var(--shadow-panel);
+    transition: border-color var(--duration) var(--ease);
+  }
+  .search:focus-within {
+    border-color: var(--accent);
+  }
+  .search svg {
+    width: 1.125rem;
+    height: 1.125rem;
+    flex: none;
+    color: var(--accent);
+  }
+  .search input {
+    min-width: 0;
+    flex: 1;
+    background: transparent;
+    color: var(--panel-text);
+    font-size: var(--text-md);
+    outline: none;
+  }
+  .search input::placeholder {
+    color: var(--panel-faint);
+  }
+  .search input::-webkit-search-cancel-button {
+    display: none;
+  }
+  .search kbd,
+  .kbd {
+    padding: 0 var(--space-2);
+    border: 1px solid var(--slate-500);
+    border-radius: var(--radius-sm);
+    color: var(--panel-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+  }
+  .search-clear {
+    display: grid;
+    width: 1.75rem;
+    height: 1.75rem;
+    place-items: center;
+    border-radius: var(--radius-sm);
+    color: var(--panel-muted);
+    font-size: var(--text-lg);
+  }
+  .search-clear:hover {
+    color: var(--danger-text);
+  }
+
+  /* A labelled checkbox with a pixel box. Add .check-danger for opting into something risky. */
+  .check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+  }
+  .check input {
+    appearance: none;
+    display: grid;
+    width: 1.125rem;
+    height: 1.125rem;
+    flex: none;
+    place-items: center;
+    border: var(--line) solid currentColor;
+    border-radius: var(--radius-sm);
+    /* Empty reads as empty on the page and on panels alike: only a faint tint of the text colour. */
+    background: color-mix(in srgb, currentColor 8%, transparent);
+  }
+  .check input:checked::after {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    background: var(--accent);
+    box-shadow: 0 0 0 1px var(--slate-950);
+  }
+  .check-danger {
+    color: var(--ink-danger);
+  }
+  .check-danger input:checked::after {
+    background: var(--danger);
+  }
+
+  /* ---- Navigation ---------------------------------------------------------------------------------------------- */
+
+  /* Page-level tabs: an underline in gold. */
+  .tabs {
+    display: flex;
+    gap: var(--space-6);
+    border-bottom: var(--line) solid var(--ink-rule);
+  }
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: calc(-1 * var(--line));
+    padding: var(--space-1) 0 var(--space-2);
+    border-bottom: 3px solid transparent;
+    color: var(--ink-muted);
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
+  }
+  .tab:hover {
+    color: var(--ink);
+  }
+  .tab[aria-selected="true"] {
+    border-color: var(--ink-accent);
+    color: var(--ink);
+  }
+
+  /* Choices inside a panel: the blue selection bar. */
+  .segments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+  .segment {
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm);
+    color: var(--panel-muted);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+  }
+  .segment:hover {
+    color: var(--panel-text);
+  }
+  .segment[aria-selected="true"],
+  .segment[aria-pressed="true"] {
+    background: linear-gradient(90deg, var(--select-from), var(--select-to));
+    color: var(--select-text);
+    box-shadow: inset 0 0 0 1px var(--select-line);
+  }
+
+  .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    color: var(--ink-muted);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+  }
+  .crumbs a {
+    color: inherit;
+  }
+  .crumbs [aria-current] {
+    color: var(--ink);
+  }
+
+  /* ---- Data ---------------------------------------------------------------------------------------------------- */
+
+  /* A small fact or status. */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--slate-500);
+    border-radius: var(--radius-sm);
+    background: var(--panel-bottom);
+    color: var(--panel-text);
+    font-family: var(--font-display);
+    font-size: var(--text-xs);
+    line-height: 1.6;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  a.badge:hover {
+    border-color: var(--accent);
+  }
+  .badge-ok {
+    border-color: var(--ok);
+    background: var(--ok-bg);
+    color: var(--ok-text);
+  }
+  .badge-warn {
+    border-color: var(--warn);
+    background: var(--warn-bg);
+    color: var(--warn-text);
+  }
+  .badge-danger {
+    border-color: var(--danger);
+    background: var(--danger-bg);
+    color: var(--danger-text);
+  }
+  .badge-accent {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  /* A pill: a removable filter, or a link to a skill. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    background: var(--panel-bottom);
+    color: var(--accent-strong);
+    font-size: var(--text-sm);
+    line-height: 1.7;
+    text-decoration: none;
+  }
+  .chip:hover {
+    background: var(--panel-raised);
+  }
+  .chip:target {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+
+  /* A number next to a label. */
+  .count {
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, currentColor 16%, transparent);
+    font-family: var(--font-body);
+    font-size: var(--text-xs);
+    font-weight: 500;
+  }
+
+  /* One mark per scanner: <span class="marks"><span class="mark mark-ok">Spector</span>…</span> */
+  .marks {
+    display: inline-flex;
+    gap: var(--space-1);
+  }
+  .mark {
+    padding: 0 var(--space-1);
+    border: 1px solid var(--slate-500);
+    border-radius: var(--radius-sm);
+    color: var(--panel-faint);
+    font-family: var(--font-display);
+    font-size: var(--text-xs);
+    line-height: 1.6;
+  }
+  .mark-ok {
+    border-color: var(--ok);
+    color: var(--ok-text);
+  }
+  .mark-danger {
+    border-color: var(--danger);
+    color: var(--danger-text);
+  }
+
+  /* Facts as a definition list. */
+  .facts {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-2) var(--space-4);
+    font-size: var(--text-sm);
+  }
+  .facts dt {
+    color: var(--panel-muted);
+    font-family: var(--font-display);
+  }
+
+  /* A table on a panel. Wrap it in .table-wrap to scroll it; add .table-sticky to keep its head in view. */
+  .table-wrap {
+    overflow: auto;
+    border-radius: var(--radius-lg);
+  }
+  .table-sticky {
+    max-height: 36rem;
+  }
+  .table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: var(--text-sm);
+  }
+  .table th {
+    padding: var(--space-3) var(--space-4);
+    background: var(--panel-top);
+    color: var(--panel-muted);
+    font-family: var(--font-display);
+    font-weight: 400;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .table-sticky .table th {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+  }
+  .table td {
+    padding: var(--space-2) var(--space-4);
+    border-top: 1px solid var(--panel-divider);
+    vertical-align: middle;
+  }
+  .table td:not(:first-child) {
+    white-space: nowrap;
+  }
+  .table tbody tr:hover td {
+    background: color-mix(in srgb, var(--panel-raised) 45%, transparent);
+  }
+
+  /* A code block with a head: label on the left, copy on the right. */
+  .code {
+    overflow: hidden;
+    border-radius: var(--radius);
+    background: var(--panel-well);
+    box-shadow: inset 0 1px 0 var(--slate-950);
+  }
+  .code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--panel-divider);
+    color: var(--panel-muted);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+  }
+  /* Commands keep one line each and scroll sideways; add .code-wrap for text that should wrap (prompts, snippets). */
+  .code pre {
+    overflow-x: auto;
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+    white-space: pre;
+  }
+  .code-wrap pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* Long secondary content, folded: <details class="disclosure"><summary>…</summary>…</details> */
+  .disclosure > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    list-style: none;
+    color: var(--ink-muted);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+  }
+  .disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+  .disclosure > summary::before {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    flex: none;
+    border-right: var(--line) solid currentColor;
+    border-bottom: var(--line) solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform var(--duration) var(--ease);
+  }
+  .disclosure[open] > summary::before {
+    transform: rotate(45deg);
+  }
+  .disclosure > summary:hover {
+    color: var(--ink);
+  }
+  .disclosure[open] > summary {
+    margin-bottom: var(--space-3);
+  }
+
+  /*
+   * The page outline: sections, and indented beneath them their subheadings, along a rail; the one you are
+   * reading is marked on the rail in gold. It docks at the top of its column while the page scrolls.
+   */
+  .page-outline {
+    position: sticky;
+    top: calc(var(--space-12) + var(--space-4));
+    display: flex;
+    max-height: calc(100dvh - var(--space-16) - var(--space-4));
+    flex-direction: column;
+    gap: var(--space-2);
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .page-outline-title {
+    color: var(--ink-muted);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+  }
+  .page-outline ul {
+    display: flex;
+    flex-direction: column;
+    border-left: var(--line) solid var(--ink-rule);
+  }
+  .page-outline a {
+    display: block;
+    margin-left: calc(-1 * var(--line));
+    padding: var(--space-1) var(--space-3);
+    border-left: var(--line) solid transparent;
+    color: var(--ink-muted);
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+    text-decoration: none;
+  }
+  .page-outline a:hover {
+    color: var(--ink);
+  }
+  .page-outline [data-depth="1"] a {
+    padding-left: var(--space-6);
+    font-size: var(--text-xs);
+  }
+  .page-outline [data-depth="2"] a {
+    padding-left: var(--space-8);
+    font-size: var(--text-xs);
+  }
+  .page-outline a[aria-current] {
+    border-left-color: var(--ink-accent);
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  /* A page with an outline: its content, and a narrow column for the outline from 1024px on. */
+  .with-outline {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-10);
+  }
+  .with-outline > .outline-side {
+    display: none;
+  }
+  @media (min-width: 1024px) {
+    .with-outline:has(.page-outline:not([hidden])) {
+      grid-template-columns: minmax(0, 1fr) 14rem;
+    }
+    .with-outline > .outline-side {
+      display: block;
+    }
+    /* In a page's own side column, the outline comes last and docks while the column's other panels scroll away. */
+    .split-side:has(> .page-outline) {
+      position: static;
+      align-self: stretch;
+    }
+  }
+  @media (max-width: 1023px) {
+    .split-side > .page-outline {
+      display: none;
+    }
+  }
+
+  /*
+   * A list of items. Every list of skills or guilds uses the same row anatomy:
+   *   <li class="row">  .row-icon (a framed skill icon)  .row-main (.row-title with .row-meta, then .row-text)
+   *                     .row-side (marks, a link)        .row-more (a disclosure that opens full width below)
+   * A row can be a link (a.row) or hold a toggle. Selected rows get the blue bar.
+   */
+  .rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-4);
+    min-width: 0;
+    padding: var(--space-3) var(--space-4);
+    border: var(--line) solid var(--slate-500);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+    color: var(--panel-text);
+    text-align: left;
+    text-decoration: none;
+    box-shadow: var(--shadow-raised);
+    transition: border-color var(--duration) var(--ease);
+  }
+  a.row:hover,
+  button.row:hover,
+  .row:has(> button:hover) {
+    border-color: var(--accent);
+  }
+  .row[data-on="true"] {
+    border-color: var(--select-line);
+    background: linear-gradient(90deg, var(--select-from), var(--panel-bottom) 70%);
+  }
+  .row-main {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  /* A skill icon in its little frame; every row's first column. */
+  .row-icon {
+    box-sizing: content-box;
+    width: var(--space-8);
+    height: var(--space-8);
+    flex: none;
+    padding: var(--line);
+    border: var(--line) solid var(--panel-divider);
+    border-radius: var(--radius-sm);
+    background: radial-gradient(circle at 50% 38%, var(--panel-raised), var(--panel-well) 78%);
+    image-rendering: pixelated;
+  }
+  /* A guild shield keeps its taller shape inside the same frame. */
+  .row-shield {
+    height: calc(var(--space-8) + var(--space-1));
+    object-fit: contain;
+  }
+  .row-side {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  /* Details that open below the row, across its full width. */
+  .row-more {
+    flex-basis: 100%;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--panel-divider);
+  }
+  .row-more:not([open]) {
+    padding-top: var(--space-2);
+  }
+  .row-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+    color: var(--accent-strong);
+    font-family: var(--font-display);
+    font-size: var(--text-md);
+  }
+  .row-meta {
+    color: var(--panel-faint);
+    font-family: var(--font-body);
+    font-size: var(--text-xs);
+  }
+  .row-text {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--panel-muted);
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  /* Nothing to show, and what to do about it. */
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-8) var(--space-4);
+    color: var(--ink-muted);
+    text-align: center;
+  }
+
+  /* A steps list with gold numbers. */
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    max-width: var(--measure);
+    padding-left: var(--space-6);
+    list-style: decimal;
+  }
+  .steps li::marker {
+    color: var(--ink-accent);
+    font-family: var(--font-display);
+    font-weight: 700;
+  }
+  .bullets {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-width: var(--measure);
+    padding-left: var(--space-5);
+    list-style: square;
+  }
+  .bullets li::marker {
+    color: var(--ink-accent);
+  }
+}

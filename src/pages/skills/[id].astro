@@ -1,10 +1,14 @@
 ---
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { Badge } from "@/components/ui/badge";
+import InstallPanel from "@/components/InstallPanel";
+import Outline from "@/components/Outline.astro";
+import PageHead from "@/components/PageHead.astro";
 import Layout from "@/layouts/Layout.astro";
-import { approvedDir, loadApprovedVersions, loadRoles } from "@/lib/catalog";
+import { author, licenseName } from "@/lib/browse";
+import { loadApprovedVersions, loadCatalog } from "@/lib/catalog";
+import { buildSha, REPO, REPO_URL } from "@/lib/site";
 import type { CatalogSkill } from "@/lib/types";
+import { approx, kb, skillDetails } from "@/lib/skill-page";
+import { watchman } from "@/lib/watch";
 
 export async function getStaticPaths() {
   const versions = await loadApprovedVersions();
@@ -13,63 +17,234 @@ export async function getStaticPaths() {
 
 type Props = { skill: CatalogSkill; versions: CatalogSkill[] };
 const { skill, versions } = Astro.props;
-const skillMd = await readFile(join(approvedDir(skill.id, skill.version), "skills", skill.id, "SKILL.md"), "utf8");
-const roles = [...(await loadRoles())].filter(([, r]) => r.skills.includes(skill.id));
-const upstream = `https://github.com/${skill.repo}/tree/${skill.sha}/${skill.path}`;
+const sha = buildSha();
+const ctx = { repoUrl: REPO_URL, sha };
+const catalog = await loadCatalog();
+const details = await skillDetails(skill, sha);
+const guilds = catalog.roles.filter((r) => r.skills.includes(skill.id));
+// Kindred skills: those sharing the most guilds with this one.
+const kindred = catalog.skills
+  .filter((s) => s.id !== skill.id)
+  .map((s) => ({ s, shared: guilds.filter((g) => g.skills.includes(s.id)).length }))
+  .filter((k) => k.shared > 0)
+  .sort((a, b) => b.shared - a.shared || a.s.id.localeCompare(b.s.id))
+  .slice(0, 6);
+const cleared = skill.scan.scanners.filter((s) => !s.blocked).length;
+const scripts = details.files.filter((f) => f.script);
+const badge = `[![marktplatz](${new URL(`/badges/${skill.id}.svg`, Astro.site)})](${new URL(`/skills/${skill.id}`, Astro.site)})`;
 ---
 
-<Layout title={skill.id} description={skill.description}>
-  <div class="grid gap-8 lg:grid-cols-[1fr_18rem]">
-    <div class="min-w-0 space-y-4">
-      <div class="flex items-center gap-4">
-        <span class="slot"><img src={`/art/wares/${skill.id}.png`} alt="" width="64" height="64" class="pixel" /></span>
-        <h1 class="adventure-heading text-4xl!">{skill.id}</h1>
-      </div>
-      <p class="text-xl text-muted-foreground">{skill.description}</p>
-      <a href={`/market/claude-code/skills/${skill.id}`} class="inline-block font-heading underline">Add this ware to thy basket →</a>
-      <h2 class="pt-4 font-heading text-2xl font-bold">The recipe (SKILL.md)</h2>
-      <pre class="overflow-x-auto bg-card p-4 whitespace-pre-wrap">{skillMd}</pre>
-    </div>
-    <aside class="pixel-box h-fit space-y-6 bg-card p-4 text-lg">
-      <dl class="space-y-3">
-        <div><dt class="text-muted-foreground">Version</dt><dd>{skill.version}</dd></div>
-        <div><dt class="text-muted-foreground">Charter</dt><dd>{skill.license}</dd></div>
-        <div>
-          <dt class="text-muted-foreground">Crafted by</dt>
-          <dd><a href={upstream} class="break-all underline">{skill.repo}@{skill.sha.slice(0, 7)}</a></dd>
-        </div>
-        <div><dt class="text-muted-foreground">Admitted</dt><dd>{skill.promotedAt.slice(0, 10)}</dd></div>
-        <div>
-          <dt class="text-muted-foreground">Guilds</dt>
-          <dd class="flex flex-wrap gap-1">
-            {roles.map(([id, role]) => <a href={`/roles/${id}`}><Badge variant="secondary">{role.name}</Badge></a>)}
-          </dd>
-        </div>
-      </dl>
-      <div class="space-y-2">
-        <h2 class="font-heading">The watch</h2>
-        <ul class="space-y-1">
-          {
-            skill.scan.scanners.map((s) => (
-              <li class="flex justify-between">
-                <span>{s.id} <span class="text-muted-foreground">{s.version}</span></span>
-                <Badge variant={s.blocked ? "destructive" : "outline"}>{s.blocked ? "seized" : "cleared"}</Badge>
-              </li>
-            ))
-          }
-        </ul>
-        {skill.scan.findings.length > 0 && (
-          <ul class="space-y-1 text-base text-muted-foreground">
-            {skill.scan.findings.map((f) => <li>[{f.severity}] {f.scanner}/{f.ruleId}: {f.message}</li>)}
+<Layout title={skill.id} description={skill.description} crumbs={[{ label: "Skills", href: "/skills" }, { label: skill.id }]}>
+  <div class="stack stack-xl">
+
+    <PageHead title={skill.id} eyebrow="Skill" icon={{ src: `/art/skills/${skill.id}.png`, width: 64, height: 64 }}>
+      <p class="lede skill-lede">{skill.description}</p>
+      <Fragment slot="meta">
+        <span class="badge">{skill.version}</span>
+        <a class="badge" href={`/licenses#skill-${skill.id}`}>{licenseName(skill.license)}</a>
+        <a class="badge badge-ok" href="#watch">{cleared}/{skill.scan.scanners.length} watchmen cleared</a>
+        {scripts.length > 0 ? <span class="badge badge-warn">brings {scripts.length} script{scripts.length === 1 ? "" : "s"}</span> : <span class="badge">instructions only</span>}
+      </Fragment>
+    </PageHead>
+
+    <div class="split">
+      <div class="stack stack-xl">
+        <section class="panel stack" id="install" aria-label="Install">
+          <h2 class="name-tag">Take it home</h2>
+          <InstallPanel client:load catalog={{ skills: [skill], roles: guilds, held: [] }} picked={{ guilds: [], skills: [skill], held: [] }} ctx={ctx} subject={skill.id} page={`/skills/${skill.id}`} />
+          <p class="fine">Read the recipe below before you install; it is what your agent will follow.</p>
+          <a class="btn btn-ghost" href={`/?add=skill:${skill.id}`}>Put it in thy scroll with others →</a>
+        </section>
+
+        <section class="stack" id="recipe">
+          <h2 class="section-title">The recipe <span>SKILL.md</span></h2>
+          <div class="skill-recipe-wrap">
+            <div class="panel prose skill-recipe" data-recipe set:html={details.html} />
+            <button type="button" class="btn btn-secondary btn-sm" data-recipe-toggle hidden>Read the whole recipe</button>
+          </div>
+        </section>
+
+        <section class="stack" id="inside">
+          <h2 class="section-title">What's inside</h2>
+          <p class="muted">
+            Every turn it costs {approx(details.tokens.always)} tokens of context (its name and description); when it fires,{" "}
+            {approx(details.tokens.invoked)} more.{" "}
+            {scripts.length > 0 ? "It brings files an agent could run: read them before installing." : "It is instructions only, no scripts."}
+          </p>
+          <ul class="panel panel-flush skill-files">
+            {
+              details.files.map((f) => (
+                <li>
+                  <a class="mono" href={`${details.copy.replace("/tree/", "/blob/")}/${f.path}`}>{f.path}</a>
+                  {f.script && <span class="badge badge-warn">script</span>}
+                  <span class="fine">{kb(f.bytes)}</span>
+                </li>
+              ))
+            }
           </ul>
-        )}
+        </section>
+
+        <section class="stack" id="watch">
+          <h2 class="section-title">The watch</h2>
+          <div class="note note-ok">
+            <span class="marks">{skill.scan.scanners.map((s) => <span class="mark mark-ok">{watchman(s.id).short}</span>)}</span>{" "}
+            Cleared by all {skill.scan.scanners.length} watchmen.
+          </div>
+          <div class="panel panel-flush table-wrap">
+            <table class="table">
+              <thead><tr><th>Watchman</th><th>Version</th><th>Notes</th><th>Report</th></tr></thead>
+              <tbody>
+                {
+                  skill.scan.scanners.map((s) => {
+                    const w = watchman(s.id);
+                    const notes = skill.scan.findings.filter((f) => f.scanner === s.id).length;
+                    return (
+                      <tr>
+                        <td><a href={w.url}>{w.name}</a> <span class="fine">{w.by}</span></td>
+                        <td>{s.version}</td>
+                        <td>{notes || <span class="muted">–</span>}</td>
+                        <td><a href={`${details.scan}/${s.id}.json`}>raw</a></td>
+                      </tr>
+                    );
+                  })
+                }
+              </tbody>
+            </table>
+          </div>
+          {
+            skill.scan.findings.length > 0 && (
+              <details class="disclosure">
+                <summary>Read the {skill.scan.findings.length} note{skill.scan.findings.length === 1 ? "" : "s"}</summary>
+                <ul class="bullets">
+                  {skill.scan.findings.map((f) => <li><span class="fine">{f.severity}</span> {watchman(f.scanner).name} {f.ruleId}: {f.message}</li>)}
+                </ul>
+              </details>
+            )
+          }
+          <p class="muted">
+            Scanned offline at admission. Each watchman's raw report is linked above, and the <a href={`${details.scan}/summary.json`}>summary</a> the market reads is kept beside them; see also <a href="/watch">what the watch does and does not prove</a>.
+          </p>
+        </section>
+
+        <section class="stack measure" id="provenance">
+          <h2 class="section-title">Provenance</h2>
+          <p>
+            Taken from <a href={`https://github.com/${skill.repo}`}>{skill.repo}</a> at tag <strong>{skill.version}</strong>, commit{" "}
+            <a class="mono" href={details.upstream}>{skill.sha.slice(0, 12)}</a>, folder <code class="mono">{skill.path}</code>, under the{" "}
+            <a href={`/licenses#skill-${skill.id}`}>{licenseName(skill.license)}</a> charter. The market serves <a href={details.copy}>this exact copy</a> from commit{" "}
+            <code class="mono">{sha.slice(0, 12)}</code> of <a href={`https://github.com/${REPO}`}>{REPO}</a>; its files hash to{" "}
+            <code class="mono skill-hash">{skill.contentHash}</code>.
+          </p>
+        </section>
+
+        {
+          versions.length > 1 && (
+            <section class="stack" id="versions">
+              <h2 class="section-title">Versions</h2>
+              <ul class="panel panel-flush skill-files">
+                {versions.map((v) => (
+                  <li>
+                    <span class="mono">{v.version}</span>
+                    <span class="fine">admitted {v.promotedAt.slice(0, 10)}</span>
+                    <span class={`badge ${v.scan.passed ? "badge-ok" : "badge-danger"}`}>{v.scan.passed ? "cleared" : "not cleared"}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )
+        }
       </div>
-      {versions.length > 1 && (
-        <div class="space-y-1">
-          <h2 class="font-heading">Versions</h2>
-          <ul>{versions.map((v) => <li>{v.version} <span class="text-muted-foreground">{v.promotedAt.slice(0, 10)}</span></li>)}</ul>
-        </div>
-      )}
-    </aside>
+
+      <aside class="stack stack-lg split-side">
+        <section class="panel">
+          <h2 class="name-tag">At a glance</h2>
+          <dl class="facts">
+            <dt>Version</dt><dd>{skill.version}</dd>
+            <dt>Charter</dt><dd><a href={`/licenses#skill-${skill.id}`}>{licenseName(skill.license)}</a></dd>
+            <dt>Crafter</dt><dd>{author(skill)}</dd>
+            <dt>Admitted</dt><dd>{skill.promotedAt.slice(0, 10)}</dd>
+            <dt>Context</dt><dd>{approx(details.tokens.always)} tokens every turn</dd>
+            <dt>Files</dt><dd>{details.files.length}</dd>
+          </dl>
+        </section>
+
+        <section class="panel">
+          <h2 class="name-tag">Guilds</h2>
+          {
+            guilds.length ? (
+              <ul class="skill-links">
+                {guilds.map((g) => (
+                  <li>
+                    <img src={`/art/guilds/${g.id}.png`} alt="" width="24" height="28" class="pixel" />
+                    <a href={`/roles/${g.id}`}>{g.name}</a>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p class="muted">No guild carries it yet.</p>
+            )
+          }
+        </section>
+
+        {
+          kindred.length > 0 && (
+            <section class="panel">
+              <h2 class="name-tag">Kindred skills</h2>
+              <ul class="skill-links">
+                {kindred.map(({ s }) => (
+                  <li>
+                    <img src={`/art/skills/${s.id}.png`} alt="" width="24" height="24" class="pixel" />
+                    <a href={`/skills/${s.id}`}>{s.id}</a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )
+        }
+
+        <section class="panel stack">
+          <h2 class="name-tag">For the crafter</h2>
+          <p class="muted">Show that this skill passed the watch, in its README:</p>
+          <img src={`/badges/${skill.id}.svg`} alt={`marktplatz badge for ${skill.id}`} />
+          <div class="code code-wrap">
+            <div class="code-head">
+              <span>Markdown</span>
+              <button type="button" class="btn btn-secondary btn-sm">Copy</button>
+            </div>
+            <pre>{badge}</pre>
+          </div>
+        </section>
+        <Outline />
+      </aside>
+    </div>
   </div>
 </Layout>
+
+<script>
+  // Copyable snippets: a .code block with a Copy button in its head.
+  for (const code of document.querySelectorAll<HTMLElement>(".code")) {
+    const button = code.querySelector<HTMLButtonElement>(".code-head button");
+    const pre = code.querySelector("pre");
+    if (!button || !pre) continue;
+    const label = button.textContent;
+    button.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(pre.textContent ?? "");
+      button.textContent = "Copied";
+      setTimeout(() => {
+        button.textContent = label;
+      }, 1500);
+    });
+  }
+
+  // The recipe can run long: fold it behind a fade until "Read all" is pressed.
+  for (const toggle of document.querySelectorAll<HTMLButtonElement>("[data-recipe-toggle]")) {
+    const recipe = toggle.previousElementSibling;
+    if (!(recipe instanceof HTMLElement)) continue;
+    if (recipe.scrollHeight <= recipe.clientHeight + 8) continue;
+    toggle.hidden = false;
+    toggle.addEventListener("click", () => {
+      recipe.classList.add("is-expanded");
+      toggle.remove();
+    });
+  }
+</script>

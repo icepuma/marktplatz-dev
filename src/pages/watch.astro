@@ -1,0 +1,93 @@
+---
+import Outline from "@/components/Outline.astro";
+import PageHead from "@/components/PageHead.astro";
+import Layout from "@/layouts/Layout.astro";
+import { loadCatalog } from "@/lib/catalog";
+import { WATCHMEN } from "@/lib/watch";
+
+// How a skill gets into the market and who checks it at the gate. Every verdict lives in the ledger; a skill held at
+// the gate has its findings there too, at /ledger#gate.
+const ids = Object.keys(WATCHMEN);
+const catalog = await loadCatalog();
+const versions = new Map(catalog.skills.flatMap((s) => s.scan.scanners.map((r) => [r.id, r.version] as const)));
+---
+
+<Layout crumbs={[{ label: "The watch" }]} title="The watch" description="How skills get into the market, who checks them at the gate, and what that does and does not prove.">
+  <div class="with-outline">
+  <div class="stack stack-xl">
+    <PageHead title="The watch">
+      <p class="lede">How a skill gets into the market, who checks it at the gate, and what that does and does not prove.</p>
+      <Fragment slot="actions">
+        <a class="btn btn-secondary" href="/ledger">Read the ledger</a>
+        <a class="btn btn-secondary" href="/request">Request a skill</a>
+      </Fragment>
+    </PageHead>
+
+    <section class="stack">
+      <h2 class="section-title">The road to the market</h2>
+      <ol class="steps">
+        <li><strong>Requested.</strong> Someone adds <code class="mono">quarantine/&lt;name&gt;.yaml</code> with three things: the repository, the folder, and an exact git tag. After that, a daily check moves it to each newer release.</li>
+        <li><strong>Fetched.</strong> The tag is cloned and its commit recorded. Symlinks are refused, the SKILL.md must be valid, and its name must match.</li>
+        <li><strong>Chartered.</strong> The repository's charter (license) at that commit must be a recognised SPDX license, or one of the few source-available licenses the market knows by their exact text (their terms are on <a href="/licenses">the charters page</a>). With no license, or an unclear one, the skill waits at the gate. The LICENSE, and the NOTICE if there is one, travel with it.</li>
+        <li><strong>Watched.</strong> Three watchmen read every file, offline and without an LLM. If any of them blocks, the skill waits <a href="/ledger#gate">at the gate</a> until a new tag clears.</li>
+        <li><strong>Recorded.</strong> A pull request copies the files unchanged into <code class="mono">approved/&lt;name&gt;/&lt;tag&gt;/</code> with their provenance and every watchman's report (or, for a skill held at the gate, only its provenance and reports into <code class="mono">gate/</code>). CI checks the records again (schemas, content hashes, tests and the build), and a person merges it.</li>
+        <li><strong>Served.</strong> The site pins every skill to the commit it was built from, and the marketplace file it writes for your harness points there, so what you install is what was checked.</li>
+      </ol>
+    </section>
+
+    <section class="stack">
+      <h2 class="section-title">The watchmen</h2>
+      <div class="watchmen-grid">
+        {
+          ids.map((id) => {
+            const w = WATCHMEN[id]!;
+            return (
+              <article class="panel stack stack-sm">
+                <h3 class="name-tag">{w.name}</h3>
+                <p class="fine">
+                  by {w.by}
+                  {versions.get(id) && <>, version {versions.get(id)}</>}
+                </p>
+                <p>{w.looks}</p>
+                <p><strong>Turns a skill away on</strong> {w.blocks}.</p>
+                <a href={w.url}>Source</a>
+              </article>
+            );
+          })
+        }
+      </div>
+    </section>
+
+    <section class="stack measure">
+      <h2 class="section-title">What the watch cannot promise</h2>
+      <ul class="bullets">
+        <li>Watchmen find known patterns. A clean report means none of them matched, not that a skill is safe. Their makers say so too.</li>
+        <li>The scans are static: nothing is run. A skill's instructions can still steer an agent badly, so read the recipe before you install.</li>
+        <li>Each version is checked once. The market looks for newer upstream releases every day; each is a new version and goes through the watch again, while the version already here stays until the new one clears.</li>
+        <li>The charter is the upstream repository's license at the pinned commit, as GitHub reports it. It is not legal advice.</li>
+        <li>Skills that bring scripts are marked on their page. Scripts only run if your agent runs them.</li>
+      </ul>
+    </section>
+
+    <section class="stack measure">
+      <h2 class="section-title">How the market is kept</h2>
+      <ul class="bullets">
+        <li>Guilds are put together by hand, for a kind of work, not by popularity.</li>
+        <li>Nothing here is paid for: no sponsored places, no bought badges.</li>
+        <li>There are no install counts or rankings, because there is no honest way to count them.</li>
+        <li>An admitted version never changes. New releases come in by themselves; to remove a skill, delete it in a pull request.</li>
+      </ul>
+    </section>
+
+    <section class="stack measure" id="machines">
+      <h2 class="section-title">For machines</h2>
+      <ul class="bullets">
+        <li><a href="/catalog.json">/catalog.json</a>: every skill and guild with provenance, license and scan results.</li>
+        <li><a href="/llms.txt">/llms.txt</a>: a plain-text map of the market for language models.</li>
+        <li><code class="mono">/badges/&lt;name&gt;.svg</code>: a README badge for each admitted skill.</li>
+      </ul>
+    </section>
+  </div>
+  <aside class="outline-side"><Outline /></aside>
+  </div>
+</Layout>

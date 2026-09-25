@@ -1,12 +1,14 @@
 // Usage:
+//   bun scripts/quarantine.ts updates      → moves every quarantine/<id>.yaml to its repository's newest release tag
 //   bun scripts/quarantine.ts plan         → JSON list of skill ids that still need onboarding
 //   bun scripts/quarantine.ts check <id>   → fetch, license, scan into .quarantine/<id>/ (exit 1 on failure)
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { approvedDir, loadQuarantine, ROOT } from "../src/lib/catalog";
-import { stageSkill } from "../src/lib/fetch";
-import { fetchRepoLicense } from "../src/lib/license";
+import { approvedDir, gateDir, loadQuarantine, ROOT } from "../src/lib/catalog";
+import { stringify } from "yaml";
+import { listTags, newerTag, stageSkill } from "../src/lib/fetch";
+import { fetchRepoLicense, fetchRepoNotice } from "../src/lib/license";
 import { scanSkill } from "../src/lib/scan";
 import { contentHash, validateSkillDir } from "../src/lib/skill";
 
@@ -14,7 +16,21 @@ export const STAGING_DIR = join(ROOT, ".quarantine");
 
 async function plan(): Promise<string[]> {
   const manifests = await loadQuarantine();
-  return [...manifests].filter(([id, m]) => !existsSync(approvedDir(id, m.version))).map(([id]) => id);
+  // A version is checked once: it is either approved or held at the gate with its scan results.
+  return [...manifests].filter(([id, m]) => !existsSync(approvedDir(id, m.version)) && !existsSync(gateDir(id, m.version))).map(([id]) => id);
+}
+
+// A newer release upstream becomes a new version to check: the manifest moves to it, and the version already in
+// the market keeps being served until the new one clears.
+async function updates(): Promise<void> {
+  const tags = new Map<string, Promise<string[]>>();
+  for (const [id, manifest] of await loadQuarantine()) {
+    if (!tags.has(manifest.repo)) tags.set(manifest.repo, listTags(manifest.repo));
+    const next = newerTag(manifest.version, await tags.get(manifest.repo)!);
+    if (!next) continue;
+    await writeFile(join(ROOT, "quarantine", `${id}.yaml`), stringify({ repo: manifest.repo, path: manifest.path, version: next }));
+    console.log(`update   ${id} ${manifest.version} → ${next}`);
+  }
 }
 
 async function check(id: string): Promise<boolean> {
@@ -34,6 +50,8 @@ async function check(id: string): Promise<boolean> {
   console.log(`license  ${manifest.repo}@${sha}`);
   const license = await fetchRepoLicense(manifest.repo, sha, process.env.GITHUB_TOKEN);
   await writeFile(join(stage, "LICENSE"), license.text);
+  const notice = await fetchRepoNotice(manifest.repo, sha, process.env.GITHUB_TOKEN);
+  if (notice !== null) await writeFile(join(stage, "NOTICE"), notice);
   console.log(`         ${license.spdx}`);
 
   await writeFile(
@@ -76,9 +94,10 @@ async function check(id: string): Promise<boolean> {
 
 const [command, arg] = process.argv.slice(2);
 try {
-  if (command === "plan") console.log(JSON.stringify(await plan()));
+  if (command === "updates") await updates();
+  else if (command === "plan") console.log(JSON.stringify(await plan()));
   else if (command === "check" && arg) process.exit((await check(arg)) ? 0 : 1);
-  else throw new Error("usage: quarantine.ts plan | check <id>");
+  else throw new Error("usage: quarantine.ts updates | plan | check <id>");
 } catch (error) {
   console.error(`FAILED   ${error instanceof Error ? error.message : error}`);
   process.exit(1);

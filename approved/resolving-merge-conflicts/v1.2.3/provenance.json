@@ -1,0 +1,10 @@
+{
+  "id": "resolving-merge-conflicts",
+  "repo": "mattpocock/skills",
+  "path": "skills/engineering/resolving-merge-conflicts",
+  "version": "v1.2.3",
+  "sha": "6acc160e4e0cd062dbbbd7a1b26ae92855edf07e",
+  "contentHash": "sha256-280eb22780c4fecf80c7ca9eeb0e39eb8500088dbb592d89e8c379e0f864f3df",
+  "license": "MIT",
+  "promotedAt": "2026-09-25T16:00:10.719Z"
+}

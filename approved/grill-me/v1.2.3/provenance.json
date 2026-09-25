@@ -1,0 +1,10 @@
+{
+  "id": "grill-me",
+  "repo": "mattpocock/skills",
+  "path": "skills/productivity/grill-me",
+  "version": "v1.2.3",
+  "sha": "6acc160e4e0cd062dbbbd7a1b26ae92855edf07e",
+  "contentHash": "sha256-1252987913586e62cf543911bcc0bba7037d5df34c750ed018c58ff10a6dadfb",
+  "license": "MIT",
+  "promotedAt": "2026-09-25T16:00:10.349Z"
+}

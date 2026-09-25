@@ -1,0 +1,10 @@
+{
+  "id": "wayfinder",
+  "repo": "mattpocock/skills",
+  "path": "skills/engineering/wayfinder",
+  "version": "v1.2.3",
+  "sha": "6acc160e4e0cd062dbbbd7a1b26ae92855edf07e",
+  "contentHash": "sha256-d3a0741c79c8b8d9758841a41b3de499885edb87f4e5484f05c8b03e23f7d0b8",
+  "license": "MIT",
+  "promotedAt": "2026-09-25T16:00:11.078Z"
+}

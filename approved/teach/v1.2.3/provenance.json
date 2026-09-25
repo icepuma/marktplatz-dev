@@ -1,0 +1,10 @@
+{
+  "id": "teach",
+  "repo": "mattpocock/skills",
+  "path": "skills/productivity/teach",
+  "version": "v1.2.3",
+  "sha": "6acc160e4e0cd062dbbbd7a1b26ae92855edf07e",
+  "contentHash": "sha256-b2a1a9c41a3f6a3c61bfdff7d9271b11b24ec31fbfa37c1769370b37894a8418",
+  "license": "MIT",
+  "promotedAt": "2026-09-25T16:00:10.840Z"
+}

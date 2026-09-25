@@ -1,20 +1,26 @@
 ---
 import "@/styles/global.css";
+import { Font } from "astro:assets";
 import PixelCoin from "@/components/PixelCoin.astro";
+import Scene from "@/components/Scene.astro";
 import ThemeIcon from "@/components/ThemeIcon.astro";
-import { CELESTIAL, MARKET_HEIGHT, MARKET_WIDTH } from "@/art/market";
 
-type Props = { title: string; description?: string; hero?: boolean };
-const { title, description = "A curated market of security-scanned agent skills, sorted by guild.", hero = false } = Astro.props;
+/** A step in the breadcrumb; the last one is the page itself and has no link. "Market" is always the first. */
+export type Crumb = { label: string; href?: string };
+type Props = { title: string; description?: string; hero?: boolean; crumbs?: Crumb[] };
+const { title, description = "A curated market of security-scanned agent skills, sorted by guild.", hero = false, crumbs = [] } = Astro.props;
 
-// The clickable sun/moon in the hero, as a percentage box over the painted scene.
-const pad = 4;
-const celestial = {
-  left: `${((CELESTIAL.x - CELESTIAL.r - pad) / MARKET_WIDTH) * 100}%`,
-  top: `${((CELESTIAL.y - CELESTIAL.r - pad) / MARKET_HEIGHT) * 100}%`,
-  width: `${((2 * CELESTIAL.r + 2 * pad) / MARKET_WIDTH) * 100}%`,
-  height: `${((2 * CELESTIAL.r + 2 * pad) / MARKET_HEIGHT) * 100}%`,
-};
+// The site's sections, in the order people need them. The shop also answers /market/*.
+const NAV = [
+  { href: "/", label: "Shop", match: (p: string) => p === "/" || p.startsWith("/market") },
+  { href: "/roles", label: "Guilds", match: (p: string) => p.startsWith("/roles") },
+  { href: "/skills", label: "Skills", match: (p: string) => p.startsWith("/skills") },
+  { href: "/ledger", label: "Ledger", match: (p: string) => p.startsWith("/ledger") },
+  { href: "/watch", label: "The watch", match: (p: string) => p.startsWith("/watch") },
+  { href: "/licenses", label: "Charters", match: (p: string) => p.startsWith("/licenses") },
+  { href: "/request", label: "Request", match: (p: string) => p.startsWith("/request") },
+];
+const path = Astro.url.pathname;
 ---
 
 <html lang="en">
@@ -23,7 +29,11 @@ const celestial = {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site)} />
     <title>{title === "marktplatz" ? title : `${title} · marktplatz`}</title>
+    <Font cssVariable="--font-pixelify" preload />
+    <Font cssVariable="--font-plex-sans" preload={[{ weight: "400", style: "normal" }]} />
+    <Font cssVariable="--font-plex-mono" />
     <script is:inline>
       // Day or night: a saved choice wins, otherwise follow the system. Any [data-theme-toggle] switches it.
       (() => {
@@ -43,39 +53,173 @@ const celestial = {
       })();
     </script>
   </head>
-  <body class="min-h-screen text-foreground">
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
     <header>
-      <nav class="wood text-[#fbf1dc]" style="box-shadow: 0 3px 0 #2a1a10">
-        <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 text-lg [text-shadow:2px_2px_#2a1a10]">
-          <a href="/" class="flex items-center gap-2 font-heading text-2xl font-bold tracking-wide">
+      <nav class="topbar" aria-label="Main">
+        <div class="page topbar-inner">
+          <a href="/" class="brand">
             <PixelCoin size={28} />
             marktplatz
           </a>
-          <a href="/" class="hover:text-[#ffe066]">Market</a>
-          <a href="/licenses" class="hover:text-[#ffe066]">Charters</a>
-          <a href="https://github.com/icepuma/marktplatz-dev" class="ml-auto hover:text-[#ffe066]">GitHub</a>
-          <button type="button" data-theme-toggle aria-label="Switch between day and night" title="Switch between day and night" class="flex">
+          <ul class="topbar-links">
+            {
+              NAV.map((item) => (
+                <li>
+                  <a href={item.href} aria-current={item.match(path) ? "page" : undefined}>
+                    {item.label}
+                  </a>
+                </li>
+              ))
+            }
+          </ul>
+          <a class="topbar-icon" href="https://github.com/icepuma/marktplatz-dev" aria-label="Source on GitHub" title="Source on GitHub">
+            <svg class="pixel" width="22" height="22" viewBox="0 0 8 8" aria-hidden="true" shape-rendering="crispEdges">
+              <path fill="currentColor" d="M2 0h4v1h1v1h1v4H7v1H6v1H5V6h1V5H2v1h1v2H2V7H1V6H0V2h1V1h1z"></path>
+            </svg>
+          </a>
+          <button type="button" class="topbar-icon" data-theme-toggle aria-label="Switch between day and night" title="Switch between day and night">
             <ThemeIcon />
           </button>
         </div>
       </nav>
-      {
-        hero ? (
-          <div class="relative mx-auto max-w-[1280px]">
-            <img src="/art/market-day.png" alt="A market square by day: striped stalls, a wizard merchant, a castle and a wizard's tower under a smiling sun." width="640" height="320" class="hero dark:hidden" />
-            <img src="/art/market-night.png" alt="The same market square by night, under the moon, lit by lanterns." width="640" height="320" class="hero hidden dark:block" />
-            <button type="button" data-theme-toggle aria-label="Switch between day and night" title="Switch between day and night" class="celestial" style={celestial} />
-          </div>
-        ) : (
-          <div aria-hidden="true" class="hero h-36 bg-[url(/art/market-day.png)] bg-[length:1280px_640px] bg-[position:center_46%] bg-repeat-x dark:bg-[url(/art/market-night.png)]" />
-        )
-      }
+      {hero ? <Scene /> : <div aria-hidden="true" class="banner" />}
     </header>
-    <main class="mx-auto max-w-6xl px-4 py-8">
+    {
+      crumbs.length > 0 && (
+        <nav class="crumbbar" aria-label="Breadcrumb">
+          <div class="page crumbbar-inner">
+            <ol class="crumbs">
+              <li>
+                <a href="/">Market</a>
+              </li>
+              {crumbs.map((c, i) => (
+                <li>
+                  {c.href && i < crumbs.length - 1 ? <a href={c.href}>{c.label}</a> : <span aria-current="page">{c.label}</span>}
+                </li>
+              ))}
+            </ol>
+            <details class="crumb-menu" data-crumb-menu hidden>
+              <summary>
+                <span class="sr-only">Section: </span>
+                <span data-crumb-current></span>
+              </summary>
+              <nav class="crumb-list" aria-label="Sections of this page">
+                <ul data-crumb-list></ul>
+              </nav>
+            </details>
+          </div>
+        </nav>
+      )
+    }
+    <main id="main" class="page site-main">
       <slot />
     </main>
-    <footer class="mx-auto max-w-6xl px-4 pb-8 text-center text-muted-foreground">
-      Est. MMXXVI · every ware inspected by the watch · <a href="/licenses" class="underline">charters</a>
+    <footer class="site-footer">
+      <div class="page site-footer-inner">
+        <p class="brand-line">
+          <PixelCoin size={20} />
+          <span>marktplatz · est. MMXXVI · every skill inspected by <a href="/watch">the watch</a></span>
+        </p>
+        <ul class="cluster footer-links" aria-label="More">
+          <li><a href="/ledger">Ledger</a></li>
+          <li><a href="/licenses">Charters</a></li>
+          <li><a href="/request">Request a skill</a></li>
+          <li><a href="/catalog.json">catalog.json</a></li>
+          <li><a href="/llms.txt">llms.txt</a></li>
+          <li><a href="https://github.com/icepuma/marktplatz-dev">GitHub</a></li>
+        </ul>
+      </div>
     </footer>
+    <script>
+      // The page's outline, built from the headings in <main>: sections (h2), their subheadings (h3), and the recipe's
+      // own headings (h4). It fills the "On this page" column on wide screens and the breadcrumb's section menu on
+      // narrow ones, and marks the part you are reading in both.
+      const OUTSIDE = ".split-side, .outline-side, .shop-side, .panel .panel";
+      const headings = [...document.querySelectorAll<HTMLElement>("main h2, main h3, main .prose h4")].filter((h) => !h.closest(OUTSIDE));
+      const lists = [...document.querySelectorAll<HTMLUListElement>("[data-outline-list], [data-crumb-list]")];
+      if (headings.filter((h) => h.tagName === "H2").length > 1 && lists.length) {
+        const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        // A heading's own words, without the quiet meta after it ("The ledger 45" reads "The ledger").
+        const label = (h: HTMLElement) =>
+          [...h.childNodes].filter((n) => !(n instanceof HTMLElement && n.matches("span:not(.sr-only)"))).map((n) => n.textContent).join("").trim();
+        const taken = new Set([...document.querySelectorAll("[id]")].map((e) => e.id));
+        const entries = headings.map((h) => {
+          // A section is found by its own id; any other heading gets one from its words.
+          const target = h.tagName === "H2" ? (h.closest<HTMLElement>("section[id]") ?? h) : h;
+          if (!target.id) {
+            let id = slug(label(h)) || "section";
+            for (let n = 2; taken.has(id); n++) id = `${slug(label(h))}-${n}`;
+            target.id = id;
+            taken.add(id);
+          }
+          return { heading: h, id: target.id, text: label(h), depth: Math.min(Number(h.tagName[1]) - 2, 2) };
+        });
+        const links = lists.map((list) =>
+          entries.map((e) => {
+            // The narrow-screen menu keeps to the sections themselves.
+            if (list.matches("[data-crumb-list]") && e.depth > 0) return null;
+            const li = document.createElement("li");
+            li.dataset.depth = String(e.depth);
+            const a = Object.assign(document.createElement("a"), { href: `#${e.id}`, textContent: e.text });
+            li.append(a);
+            list.append(li);
+            return a;
+          }),
+        );
+        for (const holder of document.querySelectorAll<HTMLElement>("[data-outline], [data-crumb-menu]")) holder.hidden = false;
+
+        // Jumping into a folded recipe unfolds it first.
+        document.addEventListener("click", (event) => {
+          const a = (event.target as HTMLElement).closest<HTMLAnchorElement>("[data-outline] a, [data-crumb-list] a");
+          const target = a && document.getElementById(a.hash.slice(1));
+          const recipe = target?.closest("[data-recipe]:not(.is-expanded)");
+          if (recipe) recipe.parentElement?.querySelector<HTMLButtonElement>("[data-recipe-toggle]")?.click();
+        });
+
+        const current = document.querySelector<HTMLElement>("[data-crumb-current]");
+        let shown = -1;
+        const follow = () => {
+          let at = 0;
+          entries.forEach((e, i) => {
+            if (e.heading.getBoundingClientRect().top < innerHeight / 3) at = i;
+          });
+          if (at === shown) return;
+          shown = at;
+          const section = entries.findLastIndex((e, i) => i <= at && e.depth === 0);
+          for (const set of links) {
+            set.forEach((a, i) => {
+              if (!a) return;
+              const here = a.closest("[data-crumb-list]") ? i === section : i === at;
+              if (here) a.setAttribute("aria-current", "location");
+              else a.removeAttribute("aria-current");
+            });
+          }
+          if (current) current.textContent = entries[Math.max(section, 0)]!.text;
+          // Keep the marked entry in view inside a long outline.
+          const mark = document.querySelector<HTMLElement>("[data-outline] a[aria-current]");
+          const box = mark?.closest<HTMLElement>("[data-outline]");
+          if (mark && box && box.scrollHeight > box.clientHeight) box.scrollTop = mark.offsetTop - box.clientHeight / 2;
+        };
+        addEventListener("scroll", follow, { passive: true });
+        follow();
+
+        // The narrow-screen menu closes after a jump, on Escape, and on any click elsewhere.
+        const menu = document.querySelector<HTMLDetailsElement>("[data-crumb-menu]");
+        if (menu) {
+          menu.querySelector("[data-crumb-list]")!.addEventListener("click", (e) => {
+            if ((e.target as HTMLElement).closest("a")) menu.open = false;
+          });
+          document.addEventListener("click", (e) => {
+            if (menu.open && !menu.contains(e.target as Node)) menu.open = false;
+          });
+          menu.addEventListener("keydown", (e) => {
+            if (e.key !== "Escape" || !menu.open) return;
+            menu.open = false;
+            menu.querySelector("summary")!.focus();
+          });
+        }
+      }
+    </script>
   </body>
 </html>

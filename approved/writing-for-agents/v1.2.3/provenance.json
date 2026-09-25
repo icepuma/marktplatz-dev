@@ -1,0 +1,10 @@
+{
+  "id": "writing-for-agents",
+  "repo": "mattpocock/skills",
+  "path": "skills/productivity/writing-for-agents",
+  "version": "v1.2.3",
+  "sha": "6acc160e4e0cd062dbbbd7a1b26ae92855edf07e",
+  "contentHash": "sha256-a6f40ea848671eecbceffcdaf6cc52dc8301815f14600735e3192d33e1efa584",
+  "license": "MIT",
+  "promotedAt": "2026-09-25T16:00:11.154Z"
+}

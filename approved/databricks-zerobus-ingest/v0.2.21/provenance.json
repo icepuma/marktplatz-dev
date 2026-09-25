@@ -1,0 +1,10 @@
+{
+  "id": "databricks-zerobus-ingest",
+  "repo": "databricks/databricks-agent-skills",
+  "path": "skills/databricks-zerobus-ingest",
+  "version": "v0.2.21",
+  "sha": "660261a395a2e6fab245faf6b756bd81ca33e4a0",
+  "contentHash": "sha256-c2650c9adb2135930d3c863fae98e3c962edcb6685030afa6d0cf6341cd649be",
+  "license": "LicenseRef-Databricks",
+  "promotedAt": "2026-09-25T16:00:10.224Z"
+}

@@ -1,0 +1,96 @@
+/* Element defaults. Only tokens from tokens.css; no component styling here. */
+
+@layer base {
+  html {
+    font-size: 100%;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse 120% 60% at 50% 0%, var(--page-glow), transparent 60%),
+      linear-gradient(var(--page-bg), var(--page-bg-end));
+    background-attachment: fixed;
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: var(--text-md);
+    line-height: var(--leading);
+    cursor: url("/art/cursor.png") 15 15, auto;
+  }
+  a,
+  button,
+  summary,
+  label:has(input[type="checkbox"]),
+  select {
+    cursor: url("/art/cursor.png") 15 15, pointer;
+  }
+  input:not([type="checkbox"], [type="radio"]),
+  textarea {
+    cursor: text;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    line-height: var(--leading-tight);
+    text-wrap: balance;
+  }
+  p,
+  li {
+    text-wrap: pretty;
+  }
+  a {
+    color: var(--ink-link);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  a:hover {
+    text-decoration-thickness: 2px;
+  }
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+  }
+  strong {
+    font-weight: 600;
+  }
+  mark {
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--accent) 45%, transparent);
+    color: inherit;
+  }
+  ::selection {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  :focus-visible {
+    outline: var(--line) solid var(--focus);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  img.pixel,
+  svg.pixel {
+    image-rendering: pixelated;
+    shape-rendering: crispEdges;
+  }
+  [hidden] {
+    display: none !important;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0s !important;
+      animation-duration: 0s !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

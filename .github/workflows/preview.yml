@@ -49,7 +49,9 @@ jobs:
           set -o pipefail
           output="$(bunx wrangler preview --name "pr-$PR" --message "$SHA" --json)"
           printf '%s\n' "$output"
-          echo "url=$(printf '%s' "$output" | jq -er '.preview.urls[0]')" >> "$GITHUB_OUTPUT"
+          # Wrangler prints its upload progress before the JSON; parse from the opening brace, and fail without a URL.
+          url="$(printf '%s\n' "$output" | sed -n '/^{/,$p' | jq -er '.preview.urls[0]')"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
         env:
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}

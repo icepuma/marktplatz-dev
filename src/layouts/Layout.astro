@@ -29,6 +29,7 @@ const path = Astro.url.pathname;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site)} />
     <title>{title === "marktplatz" ? title : `${title} · marktplatz`}</title>
     <Font cssVariable="--font-pixelify" preload />
     <Font cssVariable="--font-plex-sans" preload={[{ weight: "400", style: "normal" }]} />
@@ -50,12 +51,6 @@ const path = Astro.url.pathname;
           } catch {}
         });
       })();
-    </script>
-    <script is:inline>
-      // Snippets that name this site's address (badges, install lines) fill it in once the page knows where it lives.
-      document.addEventListener("DOMContentLoaded", () => {
-        for (const el of document.querySelectorAll("[data-origin]")) el.textContent = el.textContent.replaceAll("https://<this host>", location.origin);
-      });
     </script>
   </head>
   <body>

@@ -71,6 +71,8 @@ bun test         # RUN_HARNESSES=1 also installs a guild with the real claude an
 bun scripts/verify.ts
 ```
 
+The site runs at [marktplatz.dev](https://marktplatz.dev), a Custom Domain on the Worker
+(`routes` in `wrangler.jsonc`; Cloudflare creates the DNS record and certificate on deploy).
 Deploys go through `.github/workflows/deploy.yml` to Cloudflare (on push to `main`).
 Every pull request also gets a [Worker Preview](https://developers.cloudflare.com/workers/previews/)
 via `.github/workflows/preview.yml`: a stable URL that follows each push, shown on the PR as a

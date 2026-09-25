@@ -31,7 +31,7 @@ const kindred = catalog.skills
   .slice(0, 6);
 const cleared = skill.scan.scanners.filter((s) => !s.blocked).length;
 const scripts = details.files.filter((f) => f.script);
-const badge = `[![marktplatz](https://<this host>/badges/${skill.id}.svg)](https://<this host>/skills/${skill.id})`;
+const badge = `[![marktplatz](${new URL(`/badges/${skill.id}.svg`, Astro.site)})](${new URL(`/skills/${skill.id}`, Astro.site)})`;
 ---
 
 <Layout title={skill.id} description={skill.description} crumbs={[{ label: "Skills", href: "/skills" }, { label: skill.id }]}>
@@ -211,7 +211,7 @@ const badge = `[![marktplatz](https://<this host>/badges/${skill.id}.svg)](https
               <span>Markdown</span>
               <button type="button" class="btn btn-secondary btn-sm">Copy</button>
             </div>
-            <pre data-origin>{badge}</pre>
+            <pre>{badge}</pre>
           </div>
         </section>
         <Outline />

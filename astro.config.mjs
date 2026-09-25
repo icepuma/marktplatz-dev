@@ -5,6 +5,8 @@ import { defineConfig, fontProviders } from "astro/config";
 
 // Fully static: every page is prerendered and served as Cloudflare static assets.
 export default defineConfig({
+  // Canonical links, the README badge and llms.txt point here, wherever the build is served.
+  site: "https://marktplatz.dev",
   integrations: [
     react(),
     {

@@ -15,9 +15,18 @@ import { contentHash, validateSkillDir } from "../src/lib/skill";
 export const STAGING_DIR = join(ROOT, ".quarantine");
 
 async function plan(): Promise<string[]> {
-  const manifests = await loadQuarantine();
-  // A version is checked once: it is either approved or held at the gate with its scan results.
-  return [...manifests].filter(([id, m]) => !existsSync(approvedDir(id, m.version)) && !existsSync(gateDir(id, m.version))).map(([id]) => id);
+  const pending: string[] = [];
+  for (const [id, m] of await loadQuarantine()) {
+    // A version is checked once: it is either approved or held at the gate with its scan results.
+    // stdout carries the JSON list, so the log goes to stderr.
+    if (existsSync(approvedDir(id, m.version))) console.error(`approved ${id}@${m.version}`);
+    else if (existsSync(gateDir(id, m.version))) console.error(`gate     ${id}@${m.version}`);
+    else {
+      console.error(`check    ${id}@${m.version}`);
+      pending.push(id);
+    }
+  }
+  return pending;
 }
 
 // A newer release upstream becomes a new version to check: the manifest moves to it, and the version already in
@@ -27,7 +36,10 @@ async function updates(): Promise<void> {
   for (const [id, manifest] of await loadQuarantine()) {
     if (!tags.has(manifest.repo)) tags.set(manifest.repo, listTags(manifest.repo));
     const next = newerTag(manifest.version, await tags.get(manifest.repo)!);
-    if (!next) continue;
+    if (!next) {
+      console.log(`latest   ${id} ${manifest.version}`);
+      continue;
+    }
     await writeFile(join(ROOT, "quarantine", `${id}.yaml`), stringify({ repo: manifest.repo, path: manifest.path, version: next }));
     console.log(`update   ${id} ${manifest.version} → ${next}`);
   }

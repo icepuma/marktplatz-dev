@@ -1,3 +1,4 @@
+# Pinned one release behind to exercise the update flow.
 repo: pbakaus/impeccable
 path: plugin/skills/impeccable
 version: skill-v4.3.0
